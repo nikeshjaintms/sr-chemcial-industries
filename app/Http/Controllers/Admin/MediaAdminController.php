@@ -108,46 +108,40 @@ class MediaAdminController extends Controller
 
         $rawPath = $request->image_path;
         $fileName = basename($rawPath);
-        $relPath = 'storage/uploads/products/' . $fileName;
-
-        // Check if assigned to any product
-        $inUse = Product::where(function($query) use ($fileName, $relPath, $rawPath) {
-            $query->where('image_url', $relPath)
-                  ->orWhere('image_url', 'uploads/products/' . $fileName)
-                  ->orWhere('image_url', 'LIKE', '%' . $fileName);
-        })->get();
-
-        if ($inUse->count() > 0) {
-            $productNames = $inUse->pluck('name')->implode(', ');
-            return back()->with('error', "Cannot delete image file '{$fileName}'. It is currently assigned to {$inUse->count()} product(s): {$productNames}");
-        }
-
+        
+        $canonicalFile = public_path('assets/products/' . $fileName);
         $deleted = false;
-        $storageRelPath = 'uploads/products/' . $fileName;
 
-        if (\Illuminate\Support\Facades\Storage::disk('public')->exists($storageRelPath)) {
-            \Illuminate\Support\Facades\Storage::disk('public')->delete($storageRelPath);
+        // 1. Delete physical image file from public/assets/products/
+        if (file_exists($canonicalFile) && is_file($canonicalFile)) {
+            @unlink($canonicalFile);
             $deleted = true;
         }
 
-        $possiblePaths = [
+        // Also clean up any legacy storage path locations
+        $legacyPaths = [
             storage_path('app/public/uploads/products/' . $fileName),
             public_path('storage/uploads/products/' . $fileName),
             public_path('uploads/products/' . $fileName),
-            public_path(ltrim($rawPath, '/')),
         ];
-
-        foreach ($possiblePaths as $p) {
-            if (File::exists($p) && is_file($p)) {
-                @File::delete($p);
+        foreach ($legacyPaths as $lp) {
+            if (file_exists($lp) && is_file($lp)) {
+                @unlink($lp);
                 $deleted = true;
             }
         }
 
-        if ($deleted) {
-            return back()->with('success', "Image file '{$fileName}' deleted successfully!");
+        // 2. Clear product image_url for any products referencing this image file
+        $referencingProducts = Product::where('image_url', 'LIKE', '%' . $fileName)->get();
+        foreach ($referencingProducts as $p) {
+            $p->image_url = null;
+            $p->save();
         }
 
-        return back()->with('info', "File '{$fileName}' was already removed or is no longer present on storage disk.");
+        if ($deleted || $referencingProducts->count() > 0) {
+            return back()->with('success', "Image file '{$fileName}' successfully deleted and removed from Media Library.");
+        }
+
+        return back()->with('error', "Could not locate file '{$fileName}' to delete.");
     }
 }
