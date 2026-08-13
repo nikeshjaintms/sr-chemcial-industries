@@ -975,4 +975,78 @@ class ProductAdminController extends Controller
 
         return back()->with('success', "Image updated for '{$product->name}'!");
     }
+
+    public function deleteAllProductImages(Request $request)
+    {
+        try {
+            $products = Product::all();
+            $totalProducts = $products->count();
+
+            $imagesRemoved = 0;
+            $filesDeleted = 0;
+            $alreadyEmpty = 0;
+
+            foreach ($products as $product) {
+                $rawUrl = $product->getRawOriginal('image_url') ?? $product->image_url;
+
+                if (empty($rawUrl) || $rawUrl === '#') {
+                    $alreadyEmpty++;
+                    continue;
+                }
+
+                $clean = trim($rawUrl);
+                $isStorageFile = str_contains($clean, 'uploads/products/') || str_starts_with($clean, 'storage/');
+
+                if ($isStorageFile) {
+                    $relStoragePath = str_replace(['storage/', 'public/storage/'], '', ltrim($clean, '/'));
+
+                    try {
+                        if (\Illuminate\Support\Facades\Storage::disk('public')->exists($relStoragePath)) {
+                            \Illuminate\Support\Facades\Storage::disk('public')->delete($relStoragePath);
+                            $filesDeleted++;
+                        } else {
+                            $pubPath = public_path(ltrim($clean, '/'));
+                            if (file_exists($pubPath) && is_file($pubPath)) {
+                                @unlink($pubPath);
+                                $filesDeleted++;
+                            }
+                        }
+                    } catch (\Exception $fe) {
+                        \Log::warning("Failed deleting physical image file for product ID {$product->id}: " . $fe->getMessage());
+                    }
+                }
+
+                $product->image_url = null;
+                $product->save();
+                $imagesRemoved++;
+            }
+
+            $msg = "All product images removed successfully! Total Products: {$totalProducts} | Images Removed: {$imagesRemoved} | Physical Files Deleted: {$filesDeleted} | Already Empty: {$alreadyEmpty}. Product records, categories, and PDFs remain intact.";
+
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'status' => 'success',
+                    'total_products' => $totalProducts,
+                    'images_removed' => $imagesRemoved,
+                    'files_deleted' => $filesDeleted,
+                    'already_empty' => $alreadyEmpty,
+                    'message' => $msg,
+                ]);
+            }
+
+            return back()->with('success', $msg);
+
+        } catch (\Exception $e) {
+            \Log::error('Delete All Product Images Exception: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'status' => 'error',
+                    'message' => 'Failed to remove product images: ' . $e->getMessage(),
+                ], 500);
+            }
+            return back()->with('error', 'Failed to remove product images: ' . $e->getMessage());
+        }
+    }
 }

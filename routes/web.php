@@ -135,6 +135,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/products/bulk-images', [ProductAdminController::class, 'showBulkImageForm'])->name('products.bulk-images');
         Route::post('/products/preview-bulk-images', [ProductAdminController::class, 'previewBulkImageUpload'])->name('products.preview-bulk-images');
         Route::post('/products/process-bulk-images', [ProductAdminController::class, 'processBulkImageUpload'])->name('products.process-bulk-images');
+        Route::post('/products/delete-all-images', [ProductAdminController::class, 'deleteAllProductImages'])->name('products.delete-all-images');
         Route::get('/products/duplicate-images', [ProductAdminController::class, 'showDuplicateImages'])->name('products.duplicate-images');
         Route::post('/products/replace-duplicate-image', [ProductAdminController::class, 'replaceDuplicateImage'])->name('products.replace-duplicate-image');
 

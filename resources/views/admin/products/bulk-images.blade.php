@@ -10,9 +10,52 @@
             <h4 class="mb-1 text-primary font-bold"><i class="fa-solid fa-cloud-arrow-up me-2"></i> Bulk Product Image Auto-Matching & Assignment</h4>
             <p class="text-muted mb-0">Upload chemical product images. The system automatically reads original filenames (<code>nitric-acid.jpg</code> → <code>Nitric Acid</code>), assigns them to products, and deletes unmatched/ambiguous files.</p>
         </div>
-        <a href="{{ route('admin.products.index') }}" class="btn btn-outline-secondary">
-            <i class="fa-solid fa-arrow-left me-1"></i> Back to Product Catalog
-        </a>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-danger font-semibold d-inline-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#deleteAllImagesModalBulk">
+                <i class="fa-solid fa-trash-can"></i> Delete All Product Images
+            </button>
+            <a href="{{ route('admin.products.index') }}" class="btn btn-outline-secondary">
+                <i class="fa-solid fa-arrow-left me-1"></i> Back to Product Catalog
+            </a>
+        </div>
+    </div>
+
+    <!-- Modal: Delete All Product Images Confirmation -->
+    <div class="modal fade" id="deleteAllImagesModalBulk" tabindex="-1" aria-labelledby="deleteAllImagesModalBulkLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title font-bold" id="deleteAllImagesModalBulkLabel">
+                        <i class="fa-solid fa-triangle-exclamation me-2"></i> Delete All Product Images
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning border-start border-4 border-warning mb-3">
+                        <p class="font-bold text-dark mb-1"><i class="fa-solid fa-triangle-exclamation text-warning me-1"></i> Strong Confirmation Required</p>
+                        <p class="text-13 text-dark mb-0">
+                            Are you sure you want to remove all product images?<br>
+                            This will remove image assignments and delete the corresponding stored image files.<br>
+                            <strong>Products themselves will NOT be deleted.</strong>
+                        </p>
+                    </div>
+                    <ul class="text-13 text-muted mb-0">
+                        <li><i class="fa-solid fa-check text-success me-1"></i> Database product records remain 100% intact.</li>
+                        <li><i class="fa-solid fa-check text-success me-1"></i> Categories, names, and descriptions are NOT modified.</li>
+                        <li><i class="fa-solid fa-check text-success me-1"></i> MSDS and Specification PDF files are NOT deleted.</li>
+                    </ul>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary font-semibold" data-bs-dismiss="modal">Cancel</button>
+                    <form action="{{ route('admin.products.delete-all-images') }}" method="POST">
+                        @csrf
+                        <button type="submit" class="btn btn-danger font-bold">
+                            <i class="fa-solid fa-trash-can me-1"></i> Yes, Remove All Product Images
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 
     @if(session('success'))

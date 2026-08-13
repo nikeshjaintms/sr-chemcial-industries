@@ -32,18 +32,56 @@
         </form>
 
         <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button type="button" class="btn btn-outline-danger font-semibold d-inline-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#deleteAllImagesModal">
+                <i class="fa-solid fa-trash-can"></i> Delete All Product Images
+            </button>
             <a href="{{ route('admin.products.bulk-auto-update') }}" class="btn btn-warning font-bold d-inline-flex align-items-center gap-2 text-dark shadow-sm">
                 <i class="fa-solid fa-bolt"></i> Bulk Update All Products
             </a>
             <a href="{{ route('admin.products.import-excel') }}" class="btn btn-outline-success d-inline-flex align-items-center gap-2">
                 <i class="fa-solid fa-file-excel"></i> Import Products from Excel
             </a>
-            <a href="{{ route('admin.products.import-hierarchy') }}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
-                <i class="fa-solid fa-file-import"></i> Bulk Hierarchy Import
-            </a>
             <a href="{{ route('admin.products.create') }}" class="btn btn-brand-green d-inline-flex align-items-center gap-2">
                 <i class="fa-solid fa-plus"></i> Add New Product
             </a>
+        </div>
+    </div>
+
+    <!-- Modal: Delete All Product Images Confirmation -->
+    <div class="modal fade" id="deleteAllImagesModal" tabindex="-1" aria-labelledby="deleteAllImagesModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title font-bold" id="deleteAllImagesModalLabel">
+                        <i class="fa-solid fa-triangle-exclamation me-2"></i> Delete All Product Images
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning border-start border-4 border-warning mb-3">
+                        <p class="font-bold text-dark mb-1"><i class="fa-solid fa-triangle-exclamation text-warning me-1"></i> Strong Confirmation Required</p>
+                        <p class="text-13 text-dark mb-0">
+                            Are you sure you want to remove all product images?<br>
+                            This will remove image assignments and delete the corresponding stored image files.<br>
+                            <strong>Products themselves will NOT be deleted.</strong>
+                        </p>
+                    </div>
+                    <ul class="text-13 text-muted mb-0">
+                        <li><i class="fa-solid fa-check text-success me-1"></i> Database product records remain 100% intact.</li>
+                        <li><i class="fa-solid fa-check text-success me-1"></i> Categories, names, and descriptions are NOT modified.</li>
+                        <li><i class="fa-solid fa-check text-success me-1"></i> MSDS and Specification PDF files are NOT deleted.</li>
+                    </ul>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary font-semibold" data-bs-dismiss="modal">Cancel</button>
+                    <form action="{{ route('admin.products.delete-all-images') }}" method="POST">
+                        @csrf
+                        <button type="submit" class="btn btn-danger font-bold">
+                            <i class="fa-solid fa-trash-can me-1"></i> Yes, Remove All Product Images
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 

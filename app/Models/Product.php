@@ -284,7 +284,15 @@ class Product extends Model
             return $clean;
         }
 
-        return ltrim($clean, '/');
+        // Clean leading slashes and duplicated storage prefixes
+        $clean = ltrim($clean, '/');
+        $clean = str_replace(['public/storage/', 'storage/storage/'], 'storage/', $clean);
+
+        if (str_starts_with($clean, 'uploads/')) {
+            $clean = 'storage/' . $clean;
+        }
+
+        return $clean;
     }
 
     public function getSpecPdfUrlAttribute(): ?string
