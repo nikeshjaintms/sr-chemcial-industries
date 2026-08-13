@@ -184,8 +184,9 @@ class ProductImageMappingService
         foreach ($products as $p) {
             $raw = $p->getRawOriginal('image_url');
             $hasValidImage = !empty($raw) && $raw !== '#' && trim($raw) !== '';
+            $fileExists = $hasValidImage && file_exists(public_path(ltrim($raw, '/')));
 
-            if ($hasValidImage) {
+            if ($hasValidImage && $fileExists) {
                 $assigned++;
             } else {
                 $withoutImages[] = $p;
@@ -197,6 +198,55 @@ class ProductImageMappingService
             'assigned' => $assigned,
             'without_images_count' => count($withoutImages),
             'without_images' => $withoutImages,
+        ];
+    }
+
+    /**
+     * Scan public/assets/products/ and re-sync/auto-match existing physical image files to database products.
+     */
+    public function resyncExistingImages(): array
+    {
+        $candidateImages = $this->getCandidateImages();
+        $allProducts = Product::with('category')->get();
+
+        $assignedCount = 0;
+        $alreadyAssignedCount = 0;
+        $unassignedCount = 0;
+        $details = [];
+
+        foreach ($candidateImages as $img) {
+            $filename = $img['filename'];
+            $relPath = 'assets/products/' . $filename;
+
+            // Run matching against all products with replace mode
+            $res = $this->matcher->matchFilenameToProduct($filename, $allProducts, 'image', 'replace');
+
+            if ($res['status'] === 'SUCCESS' || $res['status'] === 'MATCHED') {
+                $productId = $res['matched_product_id'];
+                $product = $allProducts->firstWhere('id', $productId) ?? Product::find($productId);
+
+                if ($product) {
+                    $oldPath = $product->image_url;
+                    if ($oldPath === $relPath) {
+                        $alreadyAssignedCount++;
+                    } else {
+                        $product->image_url = $relPath;
+                        $product->save();
+                        $assignedCount++;
+                        $details[] = "✅ Assigned '{$filename}' → Product '{$product->name}' ({$res['matched_category']})";
+                    }
+                }
+            } else {
+                $unassignedCount++;
+            }
+        }
+
+        return [
+            'total_images_found' => count($candidateImages),
+            'assigned_count' => $assignedCount,
+            'already_assigned_count' => $alreadyAssignedCount,
+            'unassigned_count' => $unassignedCount,
+            'details' => $details,
         ];
     }
 }

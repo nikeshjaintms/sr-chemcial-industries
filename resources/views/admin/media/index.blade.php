@@ -11,6 +11,12 @@
             <p class="text-muted mb-0">Browse, filter, assign, and manage all product image assets.</p>
         </div>
         <div class="d-flex flex-wrap gap-2 align-items-center">
+            <form action="{{ route('admin.products.resync-images') }}" method="POST" class="d-inline">
+                @csrf
+                <button type="submit" class="btn btn-outline-success" onclick="return confirm('Scan public/assets/products/ and auto-assign matching image files to products?')">
+                    <i class="fa-solid fa-rotate me-1"></i> Re-Sync Existing Images
+                </button>
+            </form>
             <a href="{{ route('admin.products.bulk-pdf') }}" class="btn btn-outline-danger">
                 <i class="fa-solid fa-file-pdf me-1"></i> Bulk PDF Auto-Matching
             </a>

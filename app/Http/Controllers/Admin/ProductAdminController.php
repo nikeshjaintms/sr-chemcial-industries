@@ -1011,6 +1011,30 @@ class ProductAdminController extends Controller
         }
     }
 
+    public function resyncImages(Request $request, \App\Services\ProductImageMappingService $mappingService)
+    {
+        try {
+            $result = $mappingService->resyncExistingImages();
+            $msg = "Re-Sync Completed! Total Images Found: {$result['total_images_found']} | Newly Assigned: {$result['assigned_count']} | Already Assigned: {$result['already_assigned_count']} | Unassigned: {$result['unassigned_count']}.";
+
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $msg,
+                    'summary' => $result,
+                ]);
+            }
+
+            return back()->with('success', $msg)->with('resync_details', $result['details']);
+        } catch (\Exception $e) {
+            \Log::error('Resync Images Exception: ' . $e->getMessage());
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => 'Re-sync failed: ' . $e->getMessage()], 500);
+            }
+            return back()->with('error', 'Re-sync failed: ' . $e->getMessage());
+        }
+    }
+
     public function showDuplicateImages(\App\Services\ProductImageMappingService $mappingService)
     {
         $audit = $mappingService->auditProducts();
