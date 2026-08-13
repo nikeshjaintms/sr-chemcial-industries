@@ -288,33 +288,32 @@ class Product extends Model
         return 'assets/products/' . $fileName;
     }
 
+    public function getMsdsPdfUrlAttribute(): ?string
+    {
+        $val = $this->msds_url;
+        if (empty($val) || $val === '#') {
+            return null;
+        }
+        $clean = str_replace('\\', '/', trim($val));
+        if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://')) {
+            return $clean;
+        }
+        $fileName = basename($clean);
+        return 'assets/pdf/MSDC/' . $fileName;
+    }
+
     public function getSpecPdfUrlAttribute(): ?string
     {
-        if (!empty($this->specification_image)) {
-            return trim($this->specification_image);
+        $val = !empty($this->specification_image) ? $this->specification_image : $this->specification_url;
+        if (empty($val) || $val === '#') {
+            return null;
         }
-
-        $spec = (!empty($this->specification_url) && $this->specification_url !== '#') ? trim($this->specification_url) : null;
-        $msds = (!empty($this->msds_url) && $this->msds_url !== '#') ? trim($this->msds_url) : null;
-
-        $url = $spec ?: $msds;
-        if (!empty($url) && is_string($url)) {
-            $clean = trim($url);
-            $lower = strtolower($clean);
-            if (
-                str_ends_with($lower, '.pdf') ||
-                str_ends_with($lower, '.png') ||
-                str_ends_with($lower, '.jpg') ||
-                str_ends_with($lower, '.jpeg') ||
-                str_ends_with($lower, '.webp') ||
-                str_contains($lower, '/pdf/') ||
-                str_contains($lower, '/assets/') ||
-                str_contains($lower, 'storage/')
-            ) {
-                return $clean;
-            }
+        $clean = str_replace('\\', '/', trim($val));
+        if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://')) {
+            return $clean;
         }
-        return null;
+        $fileName = basename($clean);
+        return 'assets/pdf/Specification/' . $fileName;
     }
 
     public function category()

@@ -108,18 +108,28 @@ class ProductAdminController extends Controller
             $imageUrl = 'storage/' . $path;
         }
 
-        // Handle Specification image upload
+        // Handle Specification file upload
         $specImage = null;
         if ($request->hasFile('specification_image')) {
-            $path = $request->file('specification_image')->store('uploads/specifications', 'public');
-            $specImage = 'storage/' . $path;
+            $specFile = $request->file('specification_image');
+            $ext = $specFile->getClientOriginalExtension() ?: 'pdf';
+            $fileName = \Illuminate\Support\Str::slug($validated['name']) . '_spec_' . \Illuminate\Support\Str::random(6) . '.' . $ext;
+            $targetDir = public_path('assets/pdf/Specification');
+            if (!file_exists($targetDir)) { @mkdir($targetDir, 0755, true); }
+            $specFile->move($targetDir, $fileName);
+            $specImage = 'assets/pdf/Specification/' . $fileName;
         }
 
         // Handle MSDS / Certificate file upload
-        $msdsUrl = '#';
+        $msdsUrl = null;
         if ($request->hasFile('msds')) {
-            $path = $request->file('msds')->store('uploads/msds', 'public');
-            $msdsUrl = 'storage/' . $path;
+            $msdsFile = $request->file('msds');
+            $ext = $msdsFile->getClientOriginalExtension() ?: 'pdf';
+            $fileName = \Illuminate\Support\Str::slug($validated['name']) . '_msds_' . \Illuminate\Support\Str::random(6) . '.' . $ext;
+            $targetDir = public_path('assets/pdf/MSDC');
+            if (!file_exists($targetDir)) { @mkdir($targetDir, 0755, true); }
+            $msdsFile->move($targetDir, $fileName);
+            $msdsUrl = 'assets/pdf/MSDC/' . $fileName;
         }
 
         // Clean features and applications
@@ -202,28 +212,40 @@ class ProductAdminController extends Controller
             $imageUrl = 'storage/' . $path;
         }
 
-        // Handle Specification image upload and removal
-        $specImage = $product->specification_image;
+        // Handle Specification file upload and removal
+        $specImage = $product->specification_image ?: $product->specification_url;
         if ($request->boolean('remove_specification_image')) {
-            if ($specImage && str_starts_with($specImage, 'storage/')) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('storage/', '', $specImage));
+            if ($specImage) {
+                $oldFile = public_path('assets/pdf/Specification/' . basename($specImage));
+                if (file_exists($oldFile) && is_file($oldFile)) { @unlink($oldFile); }
             }
             $specImage = null;
         } elseif ($request->hasFile('specification_image')) {
-            $path = $request->file('specification_image')->store('uploads/specifications', 'public');
-            $specImage = 'storage/' . $path;
+            $specFile = $request->file('specification_image');
+            $ext = $specFile->getClientOriginalExtension() ?: 'pdf';
+            $fileName = \Illuminate\Support\Str::slug($validated['name']) . '_spec_' . \Illuminate\Support\Str::random(6) . '.' . $ext;
+            $targetDir = public_path('assets/pdf/Specification');
+            if (!file_exists($targetDir)) { @mkdir($targetDir, 0755, true); }
+            $specFile->move($targetDir, $fileName);
+            $specImage = 'assets/pdf/Specification/' . $fileName;
         }
 
         // Handle MSDS / Certificate file upload and removal
         $msdsUrl = $product->msds_url;
         if ($request->boolean('remove_msds')) {
-            if ($msdsUrl && str_starts_with($msdsUrl, 'storage/')) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete(str_replace('storage/', '', $msdsUrl));
+            if ($msdsUrl) {
+                $oldFile = public_path('assets/pdf/MSDC/' . basename($msdsUrl));
+                if (file_exists($oldFile) && is_file($oldFile)) { @unlink($oldFile); }
             }
-            $msdsUrl = '#';
+            $msdsUrl = null;
         } elseif ($request->hasFile('msds')) {
-            $path = $request->file('msds')->store('uploads/msds', 'public');
-            $msdsUrl = 'storage/' . $path;
+            $msdsFile = $request->file('msds');
+            $ext = $msdsFile->getClientOriginalExtension() ?: 'pdf';
+            $fileName = \Illuminate\Support\Str::slug($validated['name']) . '_msds_' . \Illuminate\Support\Str::random(6) . '.' . $ext;
+            $targetDir = public_path('assets/pdf/MSDC');
+            if (!file_exists($targetDir)) { @mkdir($targetDir, 0755, true); }
+            $msdsFile->move($targetDir, $fileName);
+            $msdsUrl = 'assets/pdf/MSDC/' . $fileName;
         }
 
         $features = array_values(array_filter($request->features ?? [], fn($val) => !empty(trim($val))));

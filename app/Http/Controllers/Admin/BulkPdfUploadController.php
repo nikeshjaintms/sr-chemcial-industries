@@ -196,11 +196,21 @@ class BulkPdfUploadController extends Controller
                     $product = $productsById[$matchedProductId];
                     $oldUrl = $pdfType === 'specification' ? $product->specification_url : $product->msds_url;
 
-                    // Store file safely
+                    // Store file safely in public/assets/pdf/MSDC/ or public/assets/pdf/Specification/
                     $storedPath = null;
                     try {
-                        $storedPath = $file->store($folder, 'public');
-                        $dbUrl = 'storage/' . $storedPath;
+                        $subDir = $pdfType === 'specification' ? 'assets/pdf/Specification' : 'assets/pdf/MSDC';
+                        $targetDir = public_path($subDir);
+                        if (!file_exists($targetDir)) {
+                            @mkdir($targetDir, 0755, true);
+                        }
+
+                        $ext = $file->getClientOriginalExtension() ?: 'pdf';
+                        $cleanBase = \Illuminate\Support\Str::slug(pathinfo($filename, PATHINFO_FILENAME));
+                        $newFileName = $cleanBase . '_' . \Illuminate\Support\Str::random(6) . '.' . $ext;
+
+                        $file->move($targetDir, $newFileName);
+                        $dbUrl = $subDir . '/' . $newFileName;
 
                         if ($pdfType === 'specification') {
                             $product->specification_url = $dbUrl;
@@ -210,11 +220,18 @@ class BulkPdfUploadController extends Controller
 
                         $product->save();
 
-                        // Clean up old file if replace mode deleted an existing storage file
-                        if ($mode === 'replace' && !empty($oldUrl) && str_starts_with($oldUrl, 'storage/')) {
-                            $oldStoragePath = str_replace('storage/', '', $oldUrl);
-                            if ($oldStoragePath !== $storedPath && Storage::disk('public')->exists($oldStoragePath)) {
-                                Storage::disk('public')->delete($oldStoragePath);
+                        // Clean up old file if replace mode replaces an existing file
+                        if ($mode === 'replace' && !empty($oldUrl)) {
+                            $oldFileName = basename($oldUrl);
+                            $oldPhysicalFile = public_path($subDir . '/' . $oldFileName);
+                            if (file_exists($oldPhysicalFile) && is_file($oldPhysicalFile)) {
+                                @unlink($oldPhysicalFile);
+                            }
+                            if (str_starts_with($oldUrl, 'storage/')) {
+                                $oldStoragePath = str_replace('storage/', '', $oldUrl);
+                                if (Storage::disk('public')->exists($oldStoragePath)) {
+                                    Storage::disk('public')->delete($oldStoragePath);
+                                }
                             }
                         }
 
