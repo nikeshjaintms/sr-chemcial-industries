@@ -767,6 +767,7 @@ class ProductAdminController extends Controller
             $request->validate([
                 'images' => 'required|array',
                 'images.*' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:10240',
+                'mode' => 'nullable|string|in:skip,replace',
                 'product_ids' => 'nullable|array',
                 'replace_modes' => 'nullable|array',
             ], [
@@ -777,67 +778,134 @@ class ProductAdminController extends Controller
             ]);
 
             $files = $request->file('images', []);
+            $globalMode = strtolower($request->input('mode', 'skip'));
             $productIds = $request->input('product_ids', []);
             $replaceModes = $request->input('replace_modes', []);
-            $allProducts = Product::with('category')->get()->keyBy('id');
+
+            $allProducts = Product::with('category')->get();
+            $allProductsArray = $allProducts->toArray();
+            $productsById = $allProducts->keyBy('id');
             $placeholderPattern = 'Caustic-Soda-Flakes-NaOH.jpg';
 
             $totalFiles = count($files);
             $assignedCount = 0;
-            $unmatchedCount = 0;
             $replacedCount = 0;
             $skippedCount = 0;
+            $deletedUnmatchedCount = 0;
             $details = [];
+            $resultsTable = [];
 
             foreach ($files as $idx => $file) {
+                $origName = $file ? $file->getClientOriginalName() : 'Unknown';
+
                 if (!$file || !$file->isValid()) {
-                    $unmatchedCount++;
-                    $details[] = "❌ Skipped invalid or corrupted file upload.";
+                    $deletedUnmatchedCount++;
+                    $details[] = "🗑️ Deleted invalid or corrupted file upload: '{$origName}'";
+                    $resultsTable[] = [
+                        'filename' => $origName,
+                        'matched_product' => '—',
+                        'status' => 'INVALID FILE',
+                        'badge_class' => 'bg-danger',
+                        'message' => 'File upload was invalid or corrupted. Discarded.',
+                    ];
                     continue;
                 }
 
-                $origName = $file->getClientOriginalName();
+                $userMode = $replaceModes[$idx] ?? $globalMode;
                 $targetProductId = $productIds[$idx] ?? null;
 
-                if (empty($targetProductId) || $targetProductId === 'auto') {
-                    $match = $mappingService->matchFilenameToProduct($origName, $allProducts->toArray());
-                    if (in_array($match['match_type'], ['exact', 'exact_chemical', 'exact_slug', 'cas_match', 'hsn_match', 'normalized']) && !empty($match['product_id'])) {
-                        $targetProductId = $match['product_id'];
-                    }
+                $match = null;
+                if (!empty($targetProductId) && $targetProductId !== 'auto' && isset($productsById[$targetProductId])) {
+                    $product = $productsById[$targetProductId];
+                    $match = [
+                        'status' => 'MATCHED',
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'product' => $product->toArray(),
+                        'match_type' => 'manual',
+                        'message' => "Manually matched to '{$product->name}'.",
+                    ];
+                } else {
+                    $match = $mappingService->matchFilenameToProduct($origName, $allProductsArray, $userMode);
                 }
 
-                if (!empty($targetProductId) && isset($allProducts[$targetProductId])) {
-                    $product = $allProducts[$targetProductId];
-                    $currentUrl = $product->image_url;
-                    $hasExisting = !empty($currentUrl) && !str_contains($currentUrl, $placeholderPattern) && file_exists(public_path($currentUrl));
-                    $userMode = $replaceModes[$idx] ?? 'replace';
+                $status = $match['status'];
+
+                if ($status === 'MATCHED' && !empty($match['product_id']) && isset($productsById[$match['product_id']])) {
+                    $product = $productsById[$match['product_id']];
+                    $oldUrl = $product->image_url;
+                    $hasExisting = !empty($oldUrl) && !str_contains($oldUrl, $placeholderPattern) && $oldUrl !== '#' && trim($oldUrl) !== '';
 
                     if ($hasExisting && $userMode === 'skip') {
                         $skippedCount++;
                         $details[] = "⏭️ Skipped '{$origName}' (Product '{$product->name}' already has an image)";
+                        $resultsTable[] = [
+                            'filename' => $origName,
+                            'matched_product' => $product->name,
+                            'status' => 'ALREADY EXISTS',
+                            'badge_class' => 'bg-info text-dark',
+                            'message' => "Product '{$product->name}' already has an image. File skipped.",
+                        ];
                         continue;
                     }
 
+                    // Store new image file on public disk
                     $path = $file->store('uploads/products', 'public');
                     $relUrl = 'storage/' . $path;
 
                     if ($hasExisting) {
                         $replacedCount++;
+
+                        // Delete old image file if stored in public storage
+                        if (str_starts_with($oldUrl, 'storage/')) {
+                            $oldStoragePath = str_replace('storage/', '', $oldUrl);
+                            if ($oldStoragePath !== $path && \Illuminate\Support\Facades\Storage::disk('public')->exists($oldStoragePath)) {
+                                \Illuminate\Support\Facades\Storage::disk('public')->delete($oldStoragePath);
+                            }
+                        }
+                    } else {
+                        $assignedCount++;
                     }
 
                     $product->image_url = $relUrl;
                     $product->save();
 
-                    $assignedCount++;
-                    $details[] = "✅ Assigned '{$origName}' → Product '{$product->name}'";
+                    $details[] = "✅ Automatically assigned '{$origName}' → Product '{$product->name}'";
+                    $resultsTable[] = [
+                        'filename' => $origName,
+                        'matched_product' => $product->name,
+                        'status' => 'SUCCESS',
+                        'badge_class' => 'bg-success',
+                        'message' => "Image stored & assigned to '{$product->name}'.",
+                    ];
+                } elseif ($status === 'ALREADY EXISTS') {
+                    $skippedCount++;
+                    $details[] = "⏭️ Skipped '{$origName}' (Product '{$match['product_name']}' already has an image)";
+                    $resultsTable[] = [
+                        'filename' => $origName,
+                        'matched_product' => $match['product_name'],
+                        'status' => 'ALREADY EXISTS',
+                        'badge_class' => 'bg-info text-dark',
+                        'message' => $match['message'],
+                    ];
                 } else {
-                    $path = $file->store('uploads/products', 'public');
-                    $unmatchedCount++;
-                    $details[] = "⚠️ Saved '{$origName}' as Unmatched Media (No Product Assigned)";
+                    // NOT FOUND or AMBIGUOUS -> DO NOT STORE FILE! File is automatically discarded/deleted.
+                    $deletedUnmatchedCount++;
+                    $details[] = "🗑️ Deleted unmatched file '{$origName}' ({$match['message']})";
+                    $resultsTable[] = [
+                        'filename' => $origName,
+                        'matched_product' => '—',
+                        'status' => $status,
+                        'badge_class' => $status === 'AMBIGUOUS' ? 'bg-warning text-dark' : 'bg-secondary',
+                        'message' => "{$match['message']} File discarded & deleted.",
+                    ];
                 }
             }
 
-            $msg = "Bulk Image Upload Completed! Total Files: {$totalFiles} | Assigned: {$assignedCount} | Replaced: {$replacedCount} | Skipped: {$skippedCount} | Unmatched: {$unmatchedCount}.";
+            // Post-process audit: get products without images
+            $audit = $mappingService->auditProducts();
+
+            $msg = "Bulk Image Auto-Assignment Completed! Total Files: {$totalFiles} | Assigned: {$assignedCount} | Replaced: {$replacedCount} | Skipped: {$skippedCount} | Deleted Unmatched: {$deletedUnmatchedCount}.";
 
             if ($request->wantsJson() || $request->ajax()) {
                 return response()->json([
@@ -847,13 +915,21 @@ class ProductAdminController extends Controller
                     'assigned_count' => $assignedCount,
                     'replaced_count' => $replacedCount,
                     'skipped_count' => $skippedCount,
-                    'unmatched_count' => $unmatchedCount,
+                    'deleted_unmatched_count' => $deletedUnmatchedCount,
+                    'without_images_count' => $audit['without_images_count'],
                     'details' => $details,
+                    'results_table' => $resultsTable,
                     'message' => $msg
                 ]);
             }
 
-            return redirect()->route('admin.products.bulk-images')->with('success', $msg)->with('upload_details', $details);
+            return redirect()
+                ->route('admin.products.bulk-images')
+                ->with('success', $msg)
+                ->with('upload_details', $details)
+                ->with('results_table', $resultsTable)
+                ->with('audit', $audit);
+
         } catch (\Illuminate\Validation\ValidationException $ve) {
             if ($request->wantsJson() || $request->ajax()) {
                 return response()->json([

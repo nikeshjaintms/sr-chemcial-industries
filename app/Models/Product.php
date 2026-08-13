@@ -273,6 +273,20 @@ class Product extends Model
         return (string) $value;
     }
 
+    public function getImageUrlAttribute($value): string
+    {
+        if (empty($value) || $value === '#') {
+            return 'assets/img/added/Chemical Supply Solutions.jpg';
+        }
+
+        $clean = trim($value);
+        if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://')) {
+            return $clean;
+        }
+
+        return ltrim($clean, '/');
+    }
+
     public function getSpecPdfUrlAttribute(): ?string
     {
         if (!empty($this->specification_image)) {

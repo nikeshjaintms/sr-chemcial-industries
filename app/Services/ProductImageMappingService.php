@@ -8,7 +8,327 @@ use Illuminate\Support\Str;
 class ProductImageMappingService
 {
     /**
-     * Get list of candidate product image files from public/assets/img and storage.
+     * Normalize filename for product image matching.
+     *
+     * Rules:
+     * - Remove extension (.jpg, .jpeg, .png, .webp, .gif)
+     * - Convert to lowercase
+     * - Trim leading/trailing spaces
+     * - Convert hyphens to spaces
+     * - Convert underscores to spaces
+     * - Remove unnecessary brackets/special characters
+     * - Convert multiple spaces to a single space
+     *
+     * @param string $filename
+     * @return string
+     */
+    public function normalizeFilename(string $filename): string
+    {
+        $base = preg_replace('/\.(jpg|jpeg|png|webp|gif)$/i', '', trim($filename));
+        if ($base === null) {
+            $base = pathinfo($filename, PATHINFO_FILENAME);
+        }
+
+        $str = mb_strtolower($base, 'UTF-8');
+        $str = str_replace(['-', '_'], ' ', $str);
+        $str = preg_replace('~[()\[\]{},.\-\\\\/+&%*#@!$^:;"\']~u', ' ', $str);
+        $str = preg_replace('/\s+/', ' ', $str);
+
+        return trim($str);
+    }
+
+    /**
+     * Clean product string (name, chemical_name, slug).
+     *
+     * @param string|null $input
+     * @return string
+     */
+    public function normalizeProductString(?string $input): string
+    {
+        if (empty($input)) {
+            return '';
+        }
+
+        $str = mb_strtolower(trim($input), 'UTF-8');
+        $str = str_replace(['-', '_'], ' ', $str);
+        $str = preg_replace('~[()\[\]{},.\-\\\\/+&%*#@!$^:;"\']~u', ' ', $str);
+        $str = preg_replace('/\s+/', ' ', $str);
+
+        return trim($str);
+    }
+
+    /**
+     * Strip parenthetical expressions from product string e.g. "Caustic Soda Flakes (NaOH)" -> "Caustic Soda Flakes"
+     *
+     * @param string|null $input
+     * @return string
+     */
+    public function getBaseProductString(?string $input): string
+    {
+        if (empty($input)) {
+            return '';
+        }
+
+        $base = preg_replace('/\s*\([^)]*\)/u', '', $input);
+        return $this->normalizeProductString($base);
+    }
+
+    /**
+     * Match a given original image filename against products database.
+     *
+     * @param string $originalFilename
+     * @param array|null $allProducts
+     * @param string $mode 'skip' or 'replace'
+     * @return array
+     */
+    public function matchFilenameToProduct(string $originalFilename, ?array $allProducts = null, string $mode = 'skip'): array
+    {
+        if (is_null($allProducts)) {
+            $allProducts = Product::with('category')->get()->toArray();
+        }
+
+        $normFilename = $this->normalizeFilename($originalFilename);
+
+        if ($normFilename === '') {
+            return [
+                'filename' => $originalFilename,
+                'norm_filename' => '',
+                'product_id' => null,
+                'product_name' => null,
+                'product' => null,
+                'status' => 'INVALID FILE',
+                'match_type' => 'invalid',
+                'confidence' => 0,
+                'label' => '❌ Invalid Filename',
+                'message' => 'Filename could not be parsed or is empty.',
+                'candidates' => [],
+            ];
+        }
+
+        // Also strip common trailing image keywords like "photo", "image", "pic"
+        $keywordsPattern = '/\s+(photo|image|pic|product|main|thumb|thumbnail)$/i';
+        $normFilenameStripped = preg_replace($keywordsPattern, '', $normFilename);
+
+        $exactMatches = [];
+        $chemicalMatches = [];
+        $slugMatches = [];
+        $candidateMatches = [];
+
+        foreach ($allProducts as $p) {
+            $pName = $p['name'] ?? '';
+            $normName = $this->normalizeProductString($pName);
+            $baseName = $this->getBaseProductString($pName);
+
+            $pChem = $p['chemical_name'] ?? '';
+            $normChem = $this->normalizeProductString($pChem);
+            $baseChem = $this->getBaseProductString($pChem);
+
+            $pSlug = $p['slug'] ?? '';
+            $normSlug = $this->normalizeProductString($pSlug);
+
+            // Level 1: Exact Name / Base Name Match
+            if (
+                $normFilename === $normName ||
+                $normFilename === $baseName ||
+                $normFilenameStripped === $normName ||
+                $normFilenameStripped === $baseName
+            ) {
+                $exactMatches[] = $p;
+                continue;
+            }
+
+            // Level 2: Exact Chemical Name / Base Chemical Match
+            if (
+                (!empty($normChem) && ($normFilename === $normChem || $normFilenameStripped === $normChem)) ||
+                (!empty($baseChem) && ($normFilename === $baseChem || $normFilenameStripped === $baseChem))
+            ) {
+                $chemicalMatches[] = $p;
+                continue;
+            }
+
+            // Level 3: Exact Slug Match
+            if (!empty($normSlug) && ($normFilename === $normSlug || $normFilenameStripped === $normSlug)) {
+                $slugMatches[] = $p;
+                continue;
+            }
+
+            // Substring candidate search (for ambiguity detection)
+            $targetStr = $baseName !== '' ? $baseName : $normName;
+            if ($targetStr !== '' && (str_contains($targetStr, $normFilename) || str_contains($normFilename, $targetStr))) {
+                $candidateMatches[] = $p;
+            }
+        }
+
+        // Priority 1: Exact Name Match
+        if (count($exactMatches) === 1) {
+            return $this->buildResult($originalFilename, $normFilename, $exactMatches[0], 'exact_name', $mode);
+        }
+
+        if (count($exactMatches) > 1) {
+            $names = array_values(array_unique(array_map(fn($p) => $p['name'], $exactMatches)));
+            if (count($names) === 1) {
+                return $this->buildResult($originalFilename, $normFilename, $exactMatches[0], 'exact_name', $mode);
+            }
+            return [
+                'filename' => $originalFilename,
+                'norm_filename' => $normFilename,
+                'product_id' => null,
+                'product_name' => null,
+                'product' => null,
+                'status' => 'AMBIGUOUS',
+                'match_type' => 'ambiguous',
+                'confidence' => 0,
+                'label' => '⚠️ Ambiguous Match',
+                'message' => 'Multiple products match exact name: ' . implode(', ', $names),
+                'candidates' => $names,
+            ];
+        }
+
+        // Priority 2: Exact Chemical Name Match
+        if (count($chemicalMatches) === 1) {
+            return $this->buildResult($originalFilename, $normFilename, $chemicalMatches[0], 'exact_chemical', $mode);
+        }
+
+        if (count($chemicalMatches) > 1) {
+            $names = array_values(array_unique(array_map(fn($p) => $p['name'], $chemicalMatches)));
+            if (count($names) === 1) {
+                return $this->buildResult($originalFilename, $normFilename, $chemicalMatches[0], 'exact_chemical', $mode);
+            }
+            return [
+                'filename' => $originalFilename,
+                'norm_filename' => $normFilename,
+                'product_id' => null,
+                'product_name' => null,
+                'product' => null,
+                'status' => 'AMBIGUOUS',
+                'match_type' => 'ambiguous',
+                'confidence' => 0,
+                'label' => '⚠️ Ambiguous Match',
+                'message' => 'Multiple products match chemical name: ' . implode(', ', $names),
+                'candidates' => $names,
+            ];
+        }
+
+        // Priority 3: Exact Slug Match
+        if (count($slugMatches) === 1) {
+            return $this->buildResult($originalFilename, $normFilename, $slugMatches[0], 'exact_slug', $mode);
+        }
+
+        if (count($slugMatches) > 1) {
+            $names = array_values(array_unique(array_map(fn($p) => $p['name'], $slugMatches)));
+            if (count($names) === 1) {
+                return $this->buildResult($originalFilename, $normFilename, $slugMatches[0], 'exact_slug', $mode);
+            }
+            return [
+                'filename' => $originalFilename,
+                'norm_filename' => $normFilename,
+                'product_id' => null,
+                'product_name' => null,
+                'product' => null,
+                'status' => 'AMBIGUOUS',
+                'match_type' => 'ambiguous',
+                'confidence' => 0,
+                'label' => '⚠️ Ambiguous Match',
+                'message' => 'Multiple products match slug: ' . implode(', ', $names),
+                'candidates' => $names,
+            ];
+        }
+
+        // Candidate / Partial Substring Match Handling (Ambiguous vs Unique Candidate)
+        if (count($candidateMatches) > 1) {
+            $names = array_values(array_unique(array_map(fn($p) => $p['name'], $candidateMatches)));
+            if (count($names) === 1) {
+                return $this->buildResult($originalFilename, $normFilename, $candidateMatches[0], 'unique_candidate', $mode);
+            }
+            return [
+                'filename' => $originalFilename,
+                'norm_filename' => $normFilename,
+                'product_id' => null,
+                'product_name' => null,
+                'product' => null,
+                'status' => 'AMBIGUOUS',
+                'match_type' => 'ambiguous',
+                'confidence' => 0,
+                'label' => '⚠️ Ambiguous Match',
+                'message' => 'Multiple candidate products found: ' . implode(', ', array_slice($names, 0, 5)),
+                'candidates' => $names,
+            ];
+        }
+
+        return [
+            'filename' => $originalFilename,
+            'norm_filename' => $normFilename,
+            'product_id' => null,
+            'product_name' => null,
+            'product' => null,
+            'status' => 'NOT FOUND',
+            'match_type' => 'not_found',
+            'confidence' => 0,
+            'label' => '❌ Not Found',
+            'message' => 'No matching product found in database.',
+            'candidates' => [],
+        ];
+    }
+
+    /**
+     * Build result array for matched product.
+     */
+    private function buildResult(
+        string $filename,
+        string $normFilename,
+        array $product,
+        string $matchType,
+        string $mode
+    ): array {
+        $placeholderPattern = 'Caustic-Soda-Flakes-NaOH.jpg';
+        $currentUrl = $product['image_url'] ?? '';
+
+        $hasExisting = !empty($currentUrl) &&
+            !str_contains($currentUrl, $placeholderPattern) &&
+            $currentUrl !== '#' &&
+            trim($currentUrl) !== '';
+
+        if ($hasExisting && $mode === 'skip') {
+            return [
+                'filename' => $filename,
+                'norm_filename' => $normFilename,
+                'product_id' => $product['id'],
+                'product_name' => $product['name'],
+                'product' => $product,
+                'status' => 'ALREADY EXISTS',
+                'match_type' => $matchType,
+                'confidence' => 100,
+                'label' => '⏭️ Already Exists',
+                'message' => "Product '{$product['name']}' already has an assigned image. Skipped.",
+                'candidates' => [],
+                'has_existing' => true,
+                'existing_url' => $currentUrl,
+            ];
+        }
+
+        $msg = $hasExisting
+            ? "Product '{$product['name']}' matched. Existing image will be replaced."
+            : "Product '{$product['name']}' matched successfully.";
+
+        return [
+            'filename' => $filename,
+            'norm_filename' => $normFilename,
+            'product_id' => $product['id'],
+            'product_name' => $product['name'],
+            'product' => $product,
+            'status' => 'MATCHED',
+            'match_type' => $matchType,
+            'confidence' => 100,
+            'label' => '✅ Exact Match',
+            'message' => $msg,
+            'candidates' => [],
+            'has_existing' => $hasExisting,
+            'existing_url' => $currentUrl,
+        ];
+    }
+
+    /**
+     * Candidate images helper for Media Library view.
      */
     public function getCandidateImages(): array
     {
@@ -23,29 +343,24 @@ class ProductImageMappingService
         $seenPaths = [];
 
         foreach ($directories as $dir) {
-            if (!file_exists($dir))
-                continue;
+            if (!file_exists($dir)) continue;
 
             $files = glob($dir . '/*');
             foreach ($files as $file) {
-                if (is_dir($file))
-                    continue;
+                if (is_dir($file)) continue;
 
                 $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-                if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif']))
-                    continue;
+                if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) continue;
 
                 $realPath = str_replace('\\', '/', realpath($file) ?: $file);
-                if (isset($seenPaths[$realPath]))
-                    continue;
+                if (isset($seenPaths[$realPath])) continue;
                 $seenPaths[$realPath] = true;
 
                 $publicRoot = str_replace('\\', '/', public_path());
                 $relPath = str_replace($publicRoot . '/', '', $realPath);
 
                 $filename = pathinfo($file, PATHINFO_FILENAME);
-                $cleanFilename = str_replace(['-', '_', '.'], ' ', $filename);
-                $normFilename = SearchService::normalize($cleanFilename);
+                $normFilename = $this->normalizeFilename(basename($file));
 
                 $images[] = [
                     'full_path' => $realPath,
@@ -65,286 +380,36 @@ class ProductImageMappingService
     }
 
     /**
-     * Match a single image filename against all live products in database using strict hierarchy.
-     */
-    public function matchFilenameToProduct(string $filename, ?array $allProducts = null): array
-    {
-        if (is_null($allProducts)) {
-            $allProducts = Product::with('category')->get()->toArray();
-        }
-
-        $baseFilename = pathinfo($filename, PATHINFO_FILENAME);
-        $cleanFilename = str_replace(['-', '_', '.'], ' ', $baseFilename);
-        $normFilename = SearchService::normalize($cleanFilename);
-        $rawCleanFilename = SearchService::rawClean($cleanFilename);
-
-        // LEVEL 1 — EXACT MATCH (Name or Base Name)
-        foreach ($allProducts as $p) {
-            $normName = SearchService::normalize($p['name']);
-            $normBaseName = SearchService::normalize(SearchService::getBaseName($p['name']));
-
-            if ($normFilename === $normName || $normFilename === $normBaseName || $rawCleanFilename === SearchService::rawClean($p['name'])) {
-                return [
-                    'product_id' => $p['id'],
-                    'product_name' => $p['name'],
-                    'product' => $p,
-                    'match_type' => 'exact',
-                    'confidence' => 100,
-                    'label' => '✅ Exact Match',
-                    'candidates' => []
-                ];
-            }
-        }
-
-        // LEVEL 2 — EXACT CHEMICAL NAME MATCH
-        foreach ($allProducts as $p) {
-            $pChem = $p['chemical_name'] ?? '';
-            if (!empty($pChem)) {
-                $normChem = SearchService::normalize($pChem);
-                if ($normFilename === $normChem) {
-                    return [
-                        'product_id' => $p['id'],
-                        'product_name' => $p['name'],
-                        'product' => $p,
-                        'match_type' => 'exact_chemical',
-                        'confidence' => 95,
-                        'label' => '✅ Exact Chemical Match',
-                        'candidates' => []
-                    ];
-                }
-            }
-        }
-
-        // LEVEL 3 — EXACT SLUG MATCH
-        foreach ($allProducts as $p) {
-            $pSlug = str_replace('-', ' ', $p['slug'] ?? '');
-            if (!empty($pSlug)) {
-                $normSlug = SearchService::normalize($pSlug);
-                if ($normFilename === $normSlug) {
-                    return [
-                        'product_id' => $p['id'],
-                        'product_name' => $p['name'],
-                        'product' => $p,
-                        'match_type' => 'exact_slug',
-                        'confidence' => 90,
-                        'label' => '✅ Exact Slug Match',
-                        'candidates' => []
-                    ];
-                }
-            }
-        }
-
-        // LEVEL 4 — CAS / HSN NUMBER MATCH
-        foreach ($allProducts as $p) {
-            $cas = trim($p['cas_number'] ?? '');
-            $hsn = trim($p['hsn_code'] ?? '');
-
-            if (!empty($cas) && $cas !== 'N/A' && str_contains($baseFilename, $cas)) {
-                return [
-                    'product_id' => $p['id'],
-                    'product_name' => $p['name'],
-                    'product' => $p,
-                    'match_type' => 'cas_match',
-                    'confidence' => 90,
-                    'label' => '✅ CAS Match (' . $cas . ')',
-                    'candidates' => []
-                ];
-            }
-
-            if (!empty($hsn) && $hsn !== 'N/A' && str_contains($baseFilename, $hsn)) {
-                return [
-                    'product_id' => $p['id'],
-                    'product_name' => $p['name'],
-                    'product' => $p,
-                    'match_type' => 'hsn_match',
-                    'confidence' => 90,
-                    'label' => '✅ HSN Match (' . $hsn . ')',
-                    'candidates' => []
-                ];
-            }
-        }
-
-        // LEVEL 5 — SAFE TOKEN MATCH & AMBIGUITY DETECTION
-        $candidateProducts = [];
-
-        if (strlen($normFilename) >= 4) {
-            foreach ($allProducts as $p) {
-                $normName = SearchService::normalize($p['name']);
-                $normBase = SearchService::normalize(SearchService::getBaseName($p['name']));
-
-                if (str_starts_with($normName, $normFilename) || str_starts_with($normBase, $normFilename) || str_starts_with($normFilename, $normBase)) {
-                    $candidateProducts[] = $p;
-                }
-            }
-        }
-
-        // AMBIGUITY CHECK: If multiple candidate products match, DO NOT AUTO-ASSIGN!
-        if (count($candidateProducts) > 1) {
-            return [
-                'product_id' => null,
-                'product_name' => null,
-                'product' => null,
-                'match_type' => 'ambiguous',
-                'confidence' => 50,
-                'label' => '⚠️ Ambiguous (' . count($candidateProducts) . ' possible products)',
-                'candidates' => array_map(fn($prod) => ['id' => $prod['id'], 'name' => $prod['name']], $candidateProducts)
-            ];
-        }
-
-        if (count($candidateProducts) === 1) {
-            $singleMatch = $candidateProducts[0];
-            return [
-                'product_id' => $singleMatch['id'],
-                'product_name' => $singleMatch['name'],
-                'product' => $singleMatch,
-                'match_type' => 'normalized',
-                'confidence' => 85,
-                'label' => '✓ Normalized Match',
-                'candidates' => []
-            ];
-        }
-
-        return [
-            'product_id' => null,
-            'product_name' => null,
-            'product' => null,
-            'match_type' => 'none',
-            'confidence' => 0,
-            'label' => '❌ No Match',
-            'candidates' => []
-        ];
-    }
-
-    /**
-     * Run complete product image audit and return detailed report.
+     * Audit products to check images count and missing images.
      */
     public function auditProducts(): array
     {
-        $products = Product::with('category')->orderBy('name', 'asc')->get();
-        $candidateImages = $this->getCandidateImages();
-
+        $products = Product::all();
         $placeholderPattern = 'Caustic-Soda-Flakes-NaOH.jpg';
 
-        $report = [
-            'total_products' => $products->count(),
-            'products_with_images' => 0,
-            'products_without_images' => 0,
-            'total_candidate_images' => count($candidateImages),
-            'matched_products' => 0,
-            'placeholder_products' => 0,
-            'mapped_items' => [],
-            'missing_image_products' => [],
-            'unmatched_products' => [],
-            'duplicate_images' => [],
-        ];
-
-        $assignedImageCount = [];
-        $assignedImagesToProducts = [];
+        $total = $products->count();
+        $assigned = 0;
+        $withoutImages = [];
 
         foreach ($products as $p) {
-            $hasValidImage = !empty($p->image_url) && !str_contains($p->image_url, $placeholderPattern) && file_exists(public_path($p->image_url));
+            $url = $p->image_url;
+            $hasValidImage = !empty($url) &&
+                !str_contains($url, $placeholderPattern) &&
+                $url !== '#' &&
+                (file_exists(public_path(ltrim($url, '/'))) || file_exists(storage_path('app/public/' . str_replace('storage/', '', ltrim($url, '/')))));
 
             if ($hasValidImage) {
-                $report['products_with_images']++;
+                $assigned++;
             } else {
-                $report['products_without_images']++;
-                $report['missing_image_products'][] = [
-                    'id' => $p->id,
-                    'name' => $p->name,
-                    'category' => $p->category ? $p->category->name : 'N/A',
-                    'current_url' => $p->image_url,
-                ];
-            }
-
-            if (!empty($p->image_url)) {
-                $assignedImageCount[$p->image_url] = ($assignedImageCount[$p->image_url] ?? 0) + 1;
-                $assignedImagesToProducts[$p->image_url][] = $p;
-            }
-
-            // Perform image match search for product
-            $match = $this->matchFilenameToProduct($p->name, $products->toArray());
-            if ($match['match_type'] !== 'none' && !empty($match['product_id'])) {
-                $report['matched_products']++;
-            }
-        }
-
-        // Find duplicate image assignments
-        foreach ($assignedImageCount as $url => $count) {
-            if ($count > 1 && !str_contains($url, $placeholderPattern)) {
-                $report['duplicate_images'][] = [
-                    'image_url' => $url,
-                    'count' => $count,
-                    'products' => array_map(fn($prod) => ['id' => $prod->id, 'name' => $prod->name], $assignedImagesToProducts[$url])
-                ];
-            }
-        }
-
-        return $report;
-    }
-
-    /**
-     * Auto map and update exact and normalized product images in database.
-     */
-    public function applyAutoMapping(bool $includeNormalized = true): array
-    {
-        $products = Product::all();
-        $candidateImages = $this->getCandidateImages();
-
-        $updated = 0;
-        $skipped = 0;
-        $alreadyCorrect = 0;
-        $details = [];
-
-        foreach ($products as $p) {
-            $pNorm = SearchService::normalize($p->name);
-            $pBaseNorm = SearchService::normalize(SearchService::getBaseName($p->name));
-            $pSlugNorm = SearchService::normalize(str_replace('-', ' ', $p->slug));
-
-            $matchedImg = null;
-            $matchType = 'none';
-
-            foreach ($candidateImages as $img) {
-                $iNorm = $img['norm_name'];
-
-                if ($pNorm === $iNorm || $pBaseNorm === $iNorm || $pSlugNorm === $iNorm) {
-                    $matchedImg = $img;
-                    $matchType = 'exact';
-                    break;
-                }
-
-                if ($includeNormalized && strlen($iNorm) >= 4) {
-                    if (str_contains($pNorm, $iNorm) || str_contains($pBaseNorm, $iNorm) || str_contains($iNorm, $pNorm)) {
-                        $matchedImg = $img;
-                        $matchType = 'normalized';
-                    }
-                }
-            }
-
-            if ($matchedImg) {
-                $newPath = $matchedImg['relative_path'];
-                if ($p->image_url === $newPath) {
-                    $alreadyCorrect++;
-                } else {
-                    $p->image_url = $newPath;
-                    $p->save();
-                    $updated++;
-                    $details[] = [
-                        'product_id' => $p->id,
-                        'name' => $p->name,
-                        'new_image' => $newPath,
-                        'match_type' => $matchType
-                    ];
-                }
-            } else {
-                $skipped++;
+                $withoutImages[] = $p;
             }
         }
 
         return [
-            'updated' => $updated,
-            'already_correct' => $alreadyCorrect,
-            'skipped' => $skipped,
-            'details' => $details
+            'total' => $total,
+            'assigned' => $assigned,
+            'without_images_count' => count($withoutImages),
+            'without_images' => $withoutImages,
         ];
     }
 }
