@@ -1,0 +1,295 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\BulkPdfUploadRequest;
+use App\Models\Product;
+use App\Services\BulkPdfMatchingService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+
+class BulkPdfUploadController extends Controller
+{
+    /**
+     * Display the Bulk PDF Upload dashboard page.
+     */
+    public function index()
+    {
+        $totalProducts = Product::count();
+        $productsWithMsds = Product::whereNotNull('msds_url')->where('msds_url', '!=', '#')->count();
+        $productsWithSpec = Product::whereNotNull('specification_url')->where('specification_url', '!=', '#')->count();
+
+        return view('admin.products.bulk-pdf', compact('totalProducts', 'productsWithMsds', 'productsWithSpec'));
+    }
+
+    /**
+     * Preview matching results without writing files or updating database.
+     */
+    public function preview(BulkPdfUploadRequest $request, BulkPdfMatchingService $matchingService)
+    {
+        try {
+            $pdfType = $request->input('pdf_type', 'msds');
+            $mode = $request->input('existing_mode', 'skip');
+            $files = $request->file('pdf_files', []);
+
+            $allProducts = Product::select('id', 'name', 'chemical_name', 'slug', 'msds_url', 'specification_url')->get();
+
+            $results = [];
+            $summary = [
+                'total' => count($files),
+                'matched' => 0,
+                'already_exists' => 0,
+                'not_found' => 0,
+                'ambiguous' => 0,
+                'failed' => 0,
+            ];
+
+            foreach ($files as $file) {
+                $filename = $file->getClientOriginalName();
+
+                if (!$file->isValid() || strtolower($file->getClientOriginalExtension()) !== 'pdf') {
+                    $summary['failed']++;
+                    $results[] = [
+                        'filename' => $filename,
+                        'pdf_type' => strtoupper($pdfType),
+                        'matched_product' => '-',
+                        'status' => 'INVALID FILE',
+                        'message' => 'Uploaded file is not a valid PDF file.',
+                        'badge_class' => 'bg-danger',
+                    ];
+                    continue;
+                }
+
+                $match = $matchingService->matchFilenameToProduct($filename, $allProducts, $pdfType, $mode);
+
+                $status = $match['status'];
+                $matchedName = $match['matched_product_name'] ?? '-';
+                $badgeClass = $this->getBadgeClass($status);
+
+                if ($status === 'SUCCESS') {
+                    $summary['matched']++;
+                } elseif ($status === 'ALREADY EXISTS') {
+                    $summary['already_exists']++;
+                } elseif ($status === 'AMBIGUOUS') {
+                    $summary['ambiguous']++;
+                } elseif ($status === 'NOT FOUND') {
+                    $summary['not_found']++;
+                } else {
+                    $summary['failed']++;
+                }
+
+                $results[] = [
+                    'filename' => $filename,
+                    'pdf_type' => strtoupper($pdfType),
+                    'matched_product' => $matchedName,
+                    'status' => $status,
+                    'message' => $match['message'],
+                    'badge_class' => $badgeClass,
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'summary' => $summary,
+                'items' => $results,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Bulk PDF Preview Error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to generate preview: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Process bulk PDF upload and attach PDFs to matched products.
+     */
+    public function process(BulkPdfUploadRequest $request, BulkPdfMatchingService $matchingService)
+    {
+        try {
+            $pdfType = strtolower($request->input('pdf_type', 'msds'));
+            $mode = strtolower($request->input('existing_mode', 'skip'));
+            $files = $request->file('pdf_files', []);
+
+            $allProducts = Product::all();
+            $productsById = $allProducts->keyBy('id');
+
+            $folder = $pdfType === 'specification' ? 'uploads/specifications' : 'uploads/msds';
+
+            $results = [];
+            $summary = [
+                'total' => count($files),
+                'uploaded' => 0,
+                'already_exists' => 0,
+                'not_found' => 0,
+                'ambiguous' => 0,
+                'failed' => 0,
+            ];
+
+            foreach ($files as $file) {
+                $filename = $file->getClientOriginalName();
+
+                // Validation check per file
+                if (!$file->isValid() || strtolower($file->getClientOriginalExtension()) !== 'pdf') {
+                    $summary['failed']++;
+                    $results[] = [
+                        'filename' => $filename,
+                        'pdf_type' => strtoupper($pdfType),
+                        'matched_product' => '-',
+                        'status' => 'INVALID FILE',
+                        'message' => 'Uploaded file is corrupted or not a PDF.',
+                        'badge_class' => 'bg-danger',
+                    ];
+                    continue;
+                }
+
+                // Matching logic
+                $match = $matchingService->matchFilenameToProduct($filename, $allProducts, $pdfType, $mode);
+
+                $status = $match['status'];
+                $matchedProductId = $match['matched_product_id'];
+
+                if ($status === 'NOT FOUND') {
+                    $summary['not_found']++;
+                    $results[] = [
+                        'filename' => $filename,
+                        'pdf_type' => strtoupper($pdfType),
+                        'matched_product' => '-',
+                        'status' => 'NOT FOUND',
+                        'message' => 'No matching product found in database.',
+                        'badge_class' => 'bg-secondary',
+                    ];
+                    continue;
+                }
+
+                if ($status === 'AMBIGUOUS') {
+                    $summary['ambiguous']++;
+                    $results[] = [
+                        'filename' => $filename,
+                        'pdf_type' => strtoupper($pdfType),
+                        'matched_product' => '-',
+                        'status' => 'AMBIGUOUS',
+                        'message' => $match['message'],
+                        'badge_class' => 'bg-warning text-dark',
+                    ];
+                    continue;
+                }
+
+                if ($status === 'ALREADY EXISTS') {
+                    $summary['already_exists']++;
+                    $results[] = [
+                        'filename' => $filename,
+                        'pdf_type' => strtoupper($pdfType),
+                        'matched_product' => $match['matched_product_name'],
+                        'status' => 'ALREADY EXISTS',
+                        'message' => $match['message'],
+                        'badge_class' => 'bg-info text-dark',
+                    ];
+                    continue;
+                }
+
+                if ($status === 'SUCCESS' && $matchedProductId && isset($productsById[$matchedProductId])) {
+                    $product = $productsById[$matchedProductId];
+                    $oldUrl = $pdfType === 'specification' ? $product->specification_url : $product->msds_url;
+
+                    // Store file safely
+                    $storedPath = null;
+                    try {
+                        $storedPath = $file->store($folder, 'public');
+                        $dbUrl = 'storage/' . $storedPath;
+
+                        if ($pdfType === 'specification') {
+                            $product->specification_url = $dbUrl;
+                        } else {
+                            $product->msds_url = $dbUrl;
+                        }
+
+                        $product->save();
+
+                        // Clean up old file if replace mode deleted an existing storage file
+                        if ($mode === 'replace' && !empty($oldUrl) && str_starts_with($oldUrl, 'storage/')) {
+                            $oldStoragePath = str_replace('storage/', '', $oldUrl);
+                            if ($oldStoragePath !== $storedPath && Storage::disk('public')->exists($oldStoragePath)) {
+                                Storage::disk('public')->delete($oldStoragePath);
+                            }
+                        }
+
+                        $summary['uploaded']++;
+                        $results[] = [
+                            'filename' => $filename,
+                            'pdf_type' => strtoupper($pdfType),
+                            'matched_product' => $product->name,
+                            'status' => 'SUCCESS',
+                            'message' => strtoupper($pdfType) . ' uploaded and attached successfully.',
+                            'badge_class' => 'bg-success',
+                        ];
+
+                    } catch (\Exception $e) {
+                        // Rollback uploaded file if DB save failed
+                        if ($storedPath && Storage::disk('public')->exists($storedPath)) {
+                            Storage::disk('public')->delete($storedPath);
+                        }
+
+                        Log::error("Failed attaching PDF {$filename} to product ID {$matchedProductId}: " . $e->getMessage());
+
+                        $summary['failed']++;
+                        $results[] = [
+                            'filename' => $filename,
+                            'pdf_type' => strtoupper($pdfType),
+                            'matched_product' => $product->name,
+                            'status' => 'FAILED',
+                            'message' => 'File attachment failed during database save.',
+                            'badge_class' => 'bg-danger',
+                        ];
+                    }
+                }
+            }
+
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'summary' => $summary,
+                    'items' => $results,
+                    'message' => "Processing complete! Total Files: {$summary['total']} | Uploaded: {$summary['uploaded']} | Already Exists: {$summary['already_exists']} | Not Found: {$summary['not_found']} | Ambiguous: {$summary['ambiguous']} | Failed: {$summary['failed']}.",
+                ]);
+            }
+
+            return redirect()
+                ->route('admin.products.bulk-pdf')
+                ->with('summary', $summary)
+                ->with('results', $results)
+                ->with('success', "Bulk PDF Auto-Matching completed successfully!");
+
+        } catch (\Exception $e) {
+            Log::error('Bulk PDF Upload Process Exception: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Bulk PDF processing failed: ' . $e->getMessage(),
+                ], 500);
+            }
+
+            return back()->with('error', 'Bulk PDF Auto-Matching failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Return Bootstrap badge CSS class for given status string.
+     */
+    private function getBadgeClass(string $status): string
+    {
+        return match ($status) {
+            'SUCCESS' => 'bg-success',
+            'ALREADY EXISTS' => 'bg-info text-dark',
+            'NOT FOUND' => 'bg-secondary',
+            'AMBIGUOUS' => 'bg-warning text-dark',
+            'INVALID FILE', 'FAILED' => 'bg-danger',
+            default => 'bg-secondary',
+        };
+    }
+}
