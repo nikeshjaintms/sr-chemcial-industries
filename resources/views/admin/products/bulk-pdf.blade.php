@@ -22,6 +22,88 @@
                     <strong>Instruction:</strong> Upload PDF files using the product name as the filename (e.g. <code>Nitric Acid.pdf</code>, <code>Caustic Soda Flakes.pdf</code>, <code>Hydrochloric-Acid.pdf</code>, <code>Sodium_Hypochlorite.pdf</code>).
                 </div>
             </div>
+    </div>
+
+    <!-- System PDF Asset & Assignment Statistics Cards -->
+    <div class="row g-3 mb-4">
+        <!-- MSDS PDF Counters Card -->
+        <div class="col-12 col-lg-6">
+            <div class="card-custom p-4 bg-white border-start border-4 border-danger h-100 shadow-sm">
+                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2">
+                    <h3 class="h6 font-bold text-dark mb-0">
+                        <i class="fa-solid fa-flask text-danger me-2"></i> MSDS PDF Assets
+                    </h3>
+                    <span class="badge bg-danger-subtle text-danger font-semibold text-12 px-3 py-1 rounded-pill">
+                        Canonical: public/assets/pdf/MSDC/
+                    </span>
+                </div>
+                <div class="row text-center g-2">
+                    <div class="col-4">
+                        <div class="p-2 bg-light rounded border">
+                            <div class="text-muted text-11 font-semibold uppercase">Total MSDS PDFs</div>
+                            <div class="h4 font-bold text-dark mb-0 mt-1" id="msdsTotalFilesCard">{{ $stats['total_msds_files'] ?? 0 }}</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-2 bg-success-subtle rounded border border-success-subtle">
+                            <div class="text-success-emphasis text-11 font-semibold uppercase">Assigned</div>
+                            <div class="h4 font-bold text-success mb-0 mt-1" id="msdsAssignedCard">{{ $stats['msds_assigned_count'] ?? 0 }}</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-2 bg-warning-subtle rounded border border-warning-subtle">
+                            <div class="text-warning-emphasis text-11 font-semibold uppercase">Unassigned</div>
+                            <div class="h4 font-bold text-warning mb-0 mt-1" id="msdsUnassignedCard">{{ $stats['msds_unassigned_count'] ?? 0 }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2 border-top text-13 font-semibold text-muted d-flex align-items-center justify-content-between">
+                    <span><i class="fa-solid fa-database text-primary me-1"></i> Products with MSDS:</span>
+                    <span class="badge bg-primary text-white text-13 px-3 py-1 font-bold rounded-pill" id="productsMsdsRatio">
+                        {{ $stats['products_with_msds'] ?? 0 }} / {{ $stats['total_products'] ?? 0 }}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Specification PDF Counters Card -->
+        <div class="col-12 col-lg-6">
+            <div class="card-custom p-4 bg-white border-start border-4 border-primary h-100 shadow-sm">
+                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2">
+                    <h3 class="h6 font-bold text-dark mb-0">
+                        <i class="fa-solid fa-file-contract text-primary me-2"></i> Technical Specification PDF Assets
+                    </h3>
+                    <span class="badge bg-primary-subtle text-primary font-semibold text-12 px-3 py-1 rounded-pill">
+                        Canonical: public/assets/pdf/Specification/
+                    </span>
+                </div>
+                <div class="row text-center g-2">
+                    <div class="col-4">
+                        <div class="p-2 bg-light rounded border">
+                            <div class="text-muted text-11 font-semibold uppercase">Total Spec PDFs</div>
+                            <div class="h4 font-bold text-dark mb-0 mt-1" id="specTotalFilesCard">{{ $stats['total_spec_files'] ?? 0 }}</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-2 bg-success-subtle rounded border border-success-subtle">
+                            <div class="text-success-emphasis text-11 font-semibold uppercase">Assigned</div>
+                            <div class="h4 font-bold text-success mb-0 mt-1" id="specAssignedCard">{{ $stats['spec_assigned_count'] ?? 0 }}</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-2 bg-warning-subtle rounded border border-warning-subtle">
+                            <div class="text-warning-emphasis text-11 font-semibold uppercase">Unassigned</div>
+                            <div class="h4 font-bold text-warning mb-0 mt-1" id="specUnassignedCard">{{ $stats['spec_unassigned_count'] ?? 0 }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2 border-top text-13 font-semibold text-muted d-flex align-items-center justify-content-between">
+                    <span><i class="fa-solid fa-database text-primary me-1"></i> Products with Specification:</span>
+                    <span class="badge bg-primary text-white text-13 px-3 py-1 font-bold rounded-pill" id="productsSpecRatio">
+                        {{ $stats['products_with_spec'] ?? 0 }} / {{ $stats['total_products'] ?? 0 }}
+                    </span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -289,7 +371,7 @@ $(document).ready(function() {
                 $btn.prop('disabled', false).html(origText);
                 
                 if (res.success) {
-                    renderResults(res.summary, res.items, 'Preview Mode (Dry Run)');
+                    renderResults(res.summary, res.items, 'Preview Mode (Dry Run)', res.stats);
                 } else {
                     alert(res.message || 'Preview analysis failed.');
                 }
@@ -305,8 +387,64 @@ $(document).ready(function() {
         });
     });
 
+    // Bulk PDF AJAX Upload Form Handler
+    $('#bulkPdfForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const files = $('#pdfFileInput')[0].files;
+        if (files.length === 0) {
+            alert('Please select at least one PDF file first.');
+            return;
+        }
+
+        const formData = new FormData(this);
+        const $btn = $('#btnConfirmUpload');
+        const origText = $btn.html();
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin me-1"></i> Uploading & Attaching...');
+
+        $.ajax({
+            url: $(this).attr('action'),
+            type: "POST",
+            data: formData,
+            processData: false,
+            contentType: false,
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(res) {
+                $btn.prop('disabled', false).html(origText);
+                if (res.success) {
+                    renderResults(res.summary, res.items, 'Processing Complete', res.stats);
+                    alert(res.message || 'Bulk PDF processing complete!');
+                } else {
+                    alert(res.message || 'Bulk PDF processing failed.');
+                }
+            },
+            error: function(xhr) {
+                $btn.prop('disabled', false).html(origText);
+                let err = 'Upload request failed.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    err = xhr.responseJSON.message;
+                }
+                alert(err);
+            }
+        });
+    });
+
     // Helper function to render table and KPIs dynamically
-    function renderResults(summary, items, modeText) {
+    function renderResults(summary, items, modeText, stats) {
+        if (stats) {
+            $('#msdsTotalFilesCard').text(stats.total_msds_files || 0);
+            $('#msdsAssignedCard').text(stats.msds_assigned_count || 0);
+            $('#msdsUnassignedCard').text(stats.msds_unassigned_count || 0);
+            $('#productsMsdsRatio').text((stats.products_with_msds || 0) + ' / ' + (stats.total_products || 0));
+
+            $('#specTotalFilesCard').text(stats.total_spec_files || 0);
+            $('#specAssignedCard').text(stats.spec_assigned_count || 0);
+            $('#specUnassignedCard').text(stats.spec_unassigned_count || 0);
+            $('#productsSpecRatio').text((stats.products_with_spec || 0) + ' / ' + (stats.total_products || 0));
+        }
+
         $('#kpiTotal').text(summary.total || 0);
         $('#kpiUploaded').text(summary.uploaded !== undefined ? summary.uploaded : (summary.matched || 0));
         $('#kpiExists').text(summary.already_exists || 0);

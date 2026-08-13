@@ -76,7 +76,14 @@ class MediaAdminController extends Controller
             ];
         }
 
-        return view('admin.media.index', compact('mediaItems', 'products', 'filter', 'search'));
+        $msdcDir = public_path('assets/pdf/MSDC');
+        $specDir = public_path('assets/pdf/Specification');
+
+        $msdsPdfCount = count(file_exists($msdcDir) ? array_filter(scandir($msdcDir), fn($f) => is_file($msdcDir . '/' . $f) && strtolower(pathinfo($f, PATHINFO_EXTENSION)) === 'pdf') : []);
+        $specPdfCount = count(file_exists($specDir) ? array_filter(scandir($specDir), fn($f) => is_file($specDir . '/' . $f) && strtolower(pathinfo($f, PATHINFO_EXTENSION)) === 'pdf') : []);
+        $totalPdfCount = $msdsPdfCount + $specPdfCount;
+
+        return view('admin.media.index', compact('mediaItems', 'products', 'filter', 'search', 'msdsPdfCount', 'specPdfCount', 'totalPdfCount'));
     }
 
     public function assign(Request $request)

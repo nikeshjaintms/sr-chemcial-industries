@@ -10,13 +10,34 @@
             <h4 class="mb-1 text-primary font-bold"><i class="fa-solid fa-photo-film me-2"></i> Media Library</h4>
             <p class="text-muted mb-0">Browse, filter, assign, and manage all product image assets.</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a href="{{ route('admin.products.bulk-pdf') }}" class="btn btn-outline-danger">
+                <i class="fa-solid fa-file-pdf me-1"></i> Bulk PDF Auto-Matching
+            </a>
             <a href="{{ route('admin.products.bulk-images') }}" class="btn btn-brand-primary">
                 <i class="fa-solid fa-cloud-arrow-up me-1"></i> Bulk Image Upload
             </a>
             <a href="{{ route('admin.products.duplicate-images') }}" class="btn btn-outline-warning">
                 <i class="fa-solid fa-images me-1"></i> Replace Duplicate Images
             </a>
+        </div>
+    </div>
+
+    <!-- PDF Assets Badge Bar -->
+    <div class="p-3 bg-light rounded border mb-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div class="font-semibold text-dark text-13">
+            <i class="fa-solid fa-folder-open text-primary me-2"></i> <strong>PDF Asset Library:</strong>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 font-semibold text-12">
+                <i class="fa-solid fa-flask me-1"></i> MSDS PDFs: <strong>{{ $msdsPdfCount ?? 0 }}</strong>
+            </span>
+            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 font-semibold text-12">
+                <i class="fa-solid fa-file-contract me-1"></i> Specification PDFs: <strong>{{ $specPdfCount ?? 0 }}</strong>
+            </span>
+            <span class="badge bg-secondary text-white px-3 py-2 font-semibold text-12">
+                <i class="fa-solid fa-file-pdf me-1"></i> Total PDFs: <strong>{{ $totalPdfCount ?? 0 }}</strong>
+            </span>
         </div>
     </div>
 

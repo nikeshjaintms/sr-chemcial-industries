@@ -17,11 +17,91 @@ class BulkPdfUploadController extends Controller
      */
     public function index()
     {
-        $totalProducts = Product::count();
-        $productsWithMsds = Product::whereNotNull('msds_url')->where('msds_url', '!=', '#')->count();
-        $productsWithSpec = Product::whereNotNull('specification_url')->where('specification_url', '!=', '#')->count();
+        $stats = $this->getSystemPdfStats();
+        $totalProducts = $stats['total_products'];
+        $productsWithMsds = $stats['products_with_msds'];
+        $productsWithSpec = $stats['products_with_spec'];
 
-        return view('admin.products.bulk-pdf', compact('totalProducts', 'productsWithMsds', 'productsWithSpec'));
+        return view('admin.products.bulk-pdf', compact('totalProducts', 'productsWithMsds', 'productsWithSpec', 'stats'));
+    }
+
+    /**
+     * Calculate dynamic PDF statistics for MSDS and Specification canonical asset directories.
+     */
+    public function getSystemPdfStats(): array
+    {
+        $totalProducts = Product::count();
+
+        $msdcDir = public_path('assets/pdf/MSDC');
+        $specDir = public_path('assets/pdf/Specification');
+
+        $msdsFiles = file_exists($msdcDir) ? array_values(array_filter(scandir($msdcDir), fn($f) => is_file($msdcDir . '/' . $f) && strtolower(pathinfo($f, PATHINFO_EXTENSION)) === 'pdf')) : [];
+        $specFiles = file_exists($specDir) ? array_values(array_filter(scandir($specDir), fn($f) => is_file($specDir . '/' . $f) && strtolower(pathinfo($f, PATHINFO_EXTENSION)) === 'pdf')) : [];
+
+        $totalMsdsFiles = count($msdsFiles);
+        $totalSpecFiles = count($specFiles);
+
+        $assignedMsdsFilenames = Product::whereNotNull('msds_url')
+            ->where('msds_url', '!=', '#')
+            ->where('msds_url', '!=', '')
+            ->pluck('msds_url')
+            ->map(fn($u) => strtolower(basename($u)))
+            ->unique()
+            ->toArray();
+
+        $assignedSpecFilenames = Product::where(function($q) {
+                $q->whereNotNull('specification_url')->where('specification_url', '!=', '#')->where('specification_url', '!=', '')
+                  ->orWhere(function($q2) {
+                      $q2->whereNotNull('specification_image')->where('specification_image', '!=', '#')->where('specification_image', '!=', '');
+                  });
+            })
+            ->get()
+            ->flatMap(function($p) {
+                $urls = [];
+                if (!empty($p->specification_url) && $p->specification_url !== '#') $urls[] = strtolower(basename($p->specification_url));
+                if (!empty($p->specification_image) && $p->specification_image !== '#') $urls[] = strtolower(basename($p->specification_image));
+                return $urls;
+            })
+            ->unique()
+            ->toArray();
+
+        $msdsAssignedCount = 0;
+        foreach ($msdsFiles as $f) {
+            if (in_array(strtolower($f), $assignedMsdsFilenames)) {
+                $msdsAssignedCount++;
+            }
+        }
+        $msdsUnassignedCount = max(0, $totalMsdsFiles - $msdsAssignedCount);
+
+        $specAssignedCount = 0;
+        foreach ($specFiles as $f) {
+            if (in_array(strtolower($f), $assignedSpecFilenames)) {
+                $specAssignedCount++;
+            }
+        }
+        $specUnassignedCount = max(0, $totalSpecFiles - $specAssignedCount);
+
+        $productsWithMsds = Product::whereNotNull('msds_url')->where('msds_url', '!=', '#')->where('msds_url', '!=', '')->count();
+        $productsWithSpec = Product::where(function($q) {
+            $q->whereNotNull('specification_url')->where('specification_url', '!=', '#')->where('specification_url', '!=', '')
+              ->orWhere(function($q2) {
+                  $q2->whereNotNull('specification_image')->where('specification_image', '!=', '#')->where('specification_image', '!=', '');
+              });
+        })->count();
+
+        return [
+            'total_products' => $totalProducts,
+            'products_with_msds' => $productsWithMsds,
+            'products_with_spec' => $productsWithSpec,
+
+            'total_msds_files' => $totalMsdsFiles,
+            'msds_assigned_count' => $msdsAssignedCount,
+            'msds_unassigned_count' => $msdsUnassignedCount,
+
+            'total_spec_files' => $totalSpecFiles,
+            'spec_assigned_count' => $specAssignedCount,
+            'spec_unassigned_count' => $specUnassignedCount,
+        ];
     }
 
     /**
@@ -94,6 +174,7 @@ class BulkPdfUploadController extends Controller
                 'success' => true,
                 'summary' => $summary,
                 'items' => $results,
+                'stats' => $this->getSystemPdfStats(),
             ]);
 
         } catch (\Exception $e) {
@@ -266,11 +347,14 @@ class BulkPdfUploadController extends Controller
                 }
             }
 
+            $stats = $this->getSystemPdfStats();
+
             if ($request->wantsJson() || $request->ajax()) {
                 return response()->json([
                     'success' => true,
                     'summary' => $summary,
                     'items' => $results,
+                    'stats' => $stats,
                     'message' => "Processing complete! Total Files: {$summary['total']} | Uploaded: {$summary['uploaded']} | Already Exists: {$summary['already_exists']} | Not Found: {$summary['not_found']} | Ambiguous: {$summary['ambiguous']} | Failed: {$summary['failed']}.",
                 ]);
             }
@@ -279,6 +363,7 @@ class BulkPdfUploadController extends Controller
                 ->route('admin.products.bulk-pdf')
                 ->with('summary', $summary)
                 ->with('results', $results)
+                ->with('stats', $stats)
                 ->with('success', "Bulk PDF Auto-Matching completed successfully!");
 
         } catch (\Exception $e) {
