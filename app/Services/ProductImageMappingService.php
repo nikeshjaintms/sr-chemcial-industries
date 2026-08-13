@@ -128,7 +128,7 @@ class ProductImageMappingService
      */
     public function getCandidateImages(): array
     {
-        $targetDir = public_path('assets/products');
+        $targetDir = str_replace('\\', '/', public_path('assets/products'));
         if (!file_exists($targetDir)) {
             @mkdir($targetDir, 0755, true);
         }
@@ -137,7 +137,17 @@ class ProductImageMappingService
         $seenPaths = [];
 
         if (file_exists($targetDir) && is_dir($targetDir)) {
-            $files = glob($targetDir . '/*');
+            $files = glob(rtrim($targetDir, '/') . '/*');
+            if (empty($files)) {
+                $scanned = @scandir($targetDir) ?: [];
+                $files = [];
+                foreach ($scanned as $f) {
+                    if ($f !== '.' && $f !== '..') {
+                        $files[] = $targetDir . '/' . $f;
+                    }
+                }
+            }
+
             foreach ($files as $file) {
                 if (is_dir($file)) continue;
 
@@ -145,8 +155,9 @@ class ProductImageMappingService
                 if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) continue;
 
                 $realPath = str_replace('\\', '/', realpath($file) ?: $file);
-                if (isset($seenPaths[$realPath])) continue;
-                $seenPaths[$realPath] = true;
+                $keyPath = strtolower($realPath);
+                if (isset($seenPaths[$keyPath])) continue;
+                $seenPaths[$keyPath] = true;
 
                 $fileName = basename($file);
                 $relPath = 'assets/products/' . $fileName;

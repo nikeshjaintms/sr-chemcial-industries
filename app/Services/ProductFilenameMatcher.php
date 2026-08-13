@@ -72,6 +72,9 @@ class ProductFilenameMatcher
     /**
      * Centralized filename normalization method.
      */
+    /**
+     * Centralized filename normalization method.
+     */
     public function normalizeFilename(string $filename): string
     {
         // 1. Remove extension case-insensitively
@@ -80,17 +83,20 @@ class ProductFilenameMatcher
             $base = pathinfo($filename, PATHINFO_FILENAME);
         }
 
-        // 2. Lowercase UTF-8
+        // 2. Strip random 8-character upload hash appended during bulk upload e.g. "caustic-soda-prills_NS2ZBntq" -> "caustic-soda-prills"
+        $base = preg_replace('/[_-][a-zA-Z0-9]{8}$/', '', $base);
+
+        // 3. Lowercase UTF-8
         $str = mb_strtolower($base, 'UTF-8');
 
-        // 3. Convert subscript characters
+        // 4. Convert subscript characters
         $str = strtr($str, $this->subscriptMap);
 
-        // 4. Replace hyphens, underscores, brackets, slashes, and punctuation with spaces
+        // 5. Replace hyphens, underscores, brackets, slashes, and punctuation with spaces
         $str = str_replace(['-', '_'], ' ', $str);
         $str = preg_replace('~[()\[\]{},.\-\\\\/+&%*#@!$^:;"\']~u', ' ', $str);
 
-        // 5. Collapse multiple spaces and trim
+        // 6. Collapse multiple spaces and trim
         $str = preg_replace('/\s+/', ' ', $str);
 
         return trim($str);
@@ -169,11 +175,12 @@ class ProductFilenameMatcher
     }
 
     /**
-     * Strip common upload version/copy suffixes e.g. "nitric acid 1" -> "nitric acid"
+     * Strip common upload version/copy suffixes and random upload hashes e.g. "nitric acid 1" -> "nitric acid"
      */
     public function stripVersionSuffix(string $normalized): string
     {
-        $stripped = preg_replace('/\s+(copy(\s*\d+)?|\d+)$/i', '', $normalized);
+        $stripped = preg_replace('/\s+[a-z0-9]{8}$/i', '', $normalized);
+        $stripped = preg_replace('/\s+(copy(\s*\d+)?|\d+)$/i', '', $stripped);
         return trim($stripped ?: $normalized);
     }
 
