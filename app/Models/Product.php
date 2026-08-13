@@ -284,20 +284,8 @@ class Product extends Model
             return $clean;
         }
 
-        // Strip server filesystem root paths (e.g. /home/srjas/.../uploads/products/filename.jpg)
-        if (preg_match('~.*?/uploads/products/(.+)~i', $clean, $m)) {
-            return 'storage/uploads/products/' . $m[1];
-        }
-
-        // Clean leading slashes and duplicated storage prefixes
-        $clean = ltrim($clean, '/');
-        $clean = str_replace(['public/storage/', 'storage/storage/', 'storage/app/public/'], 'storage/', $clean);
-
-        if (str_starts_with($clean, 'uploads/')) {
-            $clean = 'storage/' . $clean;
-        }
-
-        return $clean;
+        $fileName = basename($clean);
+        return 'assets/products/' . $fileName;
     }
 
     public function getSpecPdfUrlAttribute(): ?string

@@ -99,7 +99,7 @@
         <div class="col-6 col-md-3">
             <div class="p-3 bg-light rounded border text-center border-start border-4 border-info">
                 <div class="fs-4 font-bold text-info">{{ count($candidateImages) }}</div>
-                <div class="text-muted text-12 font-semibold">Local Image Files</div>
+                <div class="text-muted text-12 font-semibold">Local Image Files (<code>assets/products/</code>)</div>
             </div>
         </div>
     </div>

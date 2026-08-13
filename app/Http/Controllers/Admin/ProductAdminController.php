@@ -849,17 +849,32 @@ class ProductAdminController extends Controller
                         continue;
                     }
 
-                    // Store new image file on public disk
-                    $path = $file->store('uploads/products', 'public');
-                    $relUrl = 'storage/' . $path;
+                    // Store new image file directly inside public/assets/products/
+                    $ext = $file->getClientOriginalExtension() ?: 'jpg';
+                    $cleanBase = \Illuminate\Support\Str::slug(pathinfo($origName, PATHINFO_FILENAME));
+                    $newFileName = $cleanBase . '_' . \Illuminate\Support\Str::random(8) . '.' . $ext;
+
+                    $targetDir = public_path('assets/products');
+                    if (!file_exists($targetDir)) {
+                        @mkdir($targetDir, 0755, true);
+                    }
+
+                    $file->move($targetDir, $newFileName);
+                    $relUrl = 'assets/products/' . $newFileName;
 
                     if ($hasExisting) {
                         $replacedCount++;
 
-                        // Delete old image file if stored in public storage
+                        // Delete old image file if present in assets/products or storage
+                        $oldFileName = basename($oldUrl);
+                        $oldAssetFile = public_path('assets/products/' . $oldFileName);
+                        if (file_exists($oldAssetFile) && is_file($oldAssetFile)) {
+                            @unlink($oldAssetFile);
+                        }
+
                         if (str_starts_with($oldUrl, 'storage/')) {
                             $oldStoragePath = str_replace('storage/', '', $oldUrl);
-                            if ($oldStoragePath !== $path && \Illuminate\Support\Facades\Storage::disk('public')->exists($oldStoragePath)) {
+                            if (\Illuminate\Support\Facades\Storage::disk('public')->exists($oldStoragePath)) {
                                 \Illuminate\Support\Facades\Storage::disk('public')->delete($oldStoragePath);
                             }
                         }
@@ -1011,8 +1026,9 @@ class ProductAdminController extends Controller
                 }
             }
 
-            // Step 2: Delete ALL remaining & orphan physical files in canonical product upload directories
+            // Step 2: Delete ALL physical product image files in public/assets/products/ and legacy directories
             $targetDirs = [
+                public_path('assets/products'),
                 storage_path('app/public/uploads/products'),
                 public_path('storage/uploads/products'),
                 public_path('uploads/products'),

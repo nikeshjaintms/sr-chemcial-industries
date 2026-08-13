@@ -329,23 +329,20 @@ class ProductImageMappingService
 
     /**
      * Candidate images helper for Media Library view.
-     * Scans ONLY the canonical product upload directory: storage/app/public/uploads/products.
+     * Scans ONLY the canonical product image directory: public/assets/products.
      */
     public function getCandidateImages(): array
     {
-        $directories = [
-            storage_path('app/public/uploads/products'),
-            public_path('storage/uploads/products'),
-            public_path('uploads/products'),
-        ];
+        $targetDir = public_path('assets/products');
+        if (!file_exists($targetDir)) {
+            @mkdir($targetDir, 0755, true);
+        }
 
         $images = [];
         $seenPaths = [];
 
-        foreach ($directories as $dir) {
-            if (!file_exists($dir) || !is_dir($dir)) continue;
-
-            $files = glob($dir . '/*');
+        if (file_exists($targetDir) && is_dir($targetDir)) {
+            $files = glob($targetDir . '/*');
             foreach ($files as $file) {
                 if (is_dir($file)) continue;
 
@@ -357,7 +354,7 @@ class ProductImageMappingService
                 $seenPaths[$realPath] = true;
 
                 $fileName = basename($file);
-                $relPath = 'storage/uploads/products/' . $fileName;
+                $relPath = 'assets/products/' . $fileName;
                 $normFilename = $this->normalizeFilename($fileName);
                 $rawFilename = pathinfo($fileName, PATHINFO_FILENAME);
 
