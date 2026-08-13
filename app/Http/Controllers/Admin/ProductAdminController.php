@@ -208,16 +208,29 @@ class ProductAdminController extends Controller
 
         $imageUrl = $product->image_url;
         if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('uploads/products', 'public');
-            $imageUrl = 'storage/' . $path;
+            $imgFile = $request->file('image');
+            $ext = $imgFile->getClientOriginalExtension() ?: 'jpg';
+            $fileName = \Illuminate\Support\Str::slug($validated['name']) . '_' . \Illuminate\Support\Str::random(6) . '.' . $ext;
+            $targetDir = public_path('assets/products');
+            if (!file_exists($targetDir)) { @mkdir($targetDir, 0755, true); }
+            $imgFile->move($targetDir, $fileName);
+            $imageUrl = 'assets/products/' . $fileName;
         }
 
         // Handle Specification file upload and removal
         $specImage = $product->specification_image ?: $product->specification_url;
         if ($request->boolean('remove_specification_image')) {
             if ($specImage) {
-                $oldFile = public_path('assets/pdf/Specification/' . basename($specImage));
-                if (file_exists($oldFile) && is_file($oldFile)) { @unlink($oldFile); }
+                $fileName = basename($specImage);
+                $possibleFiles = [
+                    public_path('assets/pdf/Specification/' . $fileName),
+                    storage_path('app/public/uploads/specifications/' . $fileName),
+                    public_path('storage/uploads/specifications/' . $fileName),
+                    public_path('uploads/specifications/' . $fileName),
+                ];
+                foreach ($possibleFiles as $f) {
+                    if (file_exists($f) && is_file($f)) { @unlink($f); }
+                }
             }
             $specImage = null;
         } elseif ($request->hasFile('specification_image')) {
@@ -234,8 +247,16 @@ class ProductAdminController extends Controller
         $msdsUrl = $product->msds_url;
         if ($request->boolean('remove_msds')) {
             if ($msdsUrl) {
-                $oldFile = public_path('assets/pdf/MSDC/' . basename($msdsUrl));
-                if (file_exists($oldFile) && is_file($oldFile)) { @unlink($oldFile); }
+                $fileName = basename($msdsUrl);
+                $possibleFiles = [
+                    public_path('assets/pdf/MSDC/' . $fileName),
+                    storage_path('app/public/uploads/msds/' . $fileName),
+                    public_path('storage/uploads/msds/' . $fileName),
+                    public_path('uploads/msds/' . $fileName),
+                ];
+                foreach ($possibleFiles as $f) {
+                    if (file_exists($f) && is_file($f)) { @unlink($f); }
+                }
             }
             $msdsUrl = null;
         } elseif ($request->hasFile('msds')) {
@@ -266,12 +287,12 @@ class ProductAdminController extends Controller
             'specifications' => $product->specifications ?? [],
             'storage_info' => $validated['storage_info'] ?? null,
             'category_id' => $categoryId,
-            'sort_order' => $validated['sort_order'] ?? $product->sort_order,
+            'sort_order' => isset($validated['sort_order']) ? (int)$validated['sort_order'] : ($product->sort_order ?? 0),
             'status' => $request->has('status') ? $request->boolean('status') : true,
             'image_url' => $imageUrl,
             'msds_url' => $msdsUrl,
             'specification_image' => $specImage,
-            'specification_url' => $specImage ?: $product->specification_url,
+            'specification_url' => $specImage,
             'is_featured' => $request->boolean('is_featured'),
         ]);
 

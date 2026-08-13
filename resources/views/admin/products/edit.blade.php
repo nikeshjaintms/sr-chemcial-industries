@@ -175,35 +175,55 @@
                     </a>
                 </div>
 
-                <!-- Specification Image Field -->
+                <!-- Specification Document / File Field -->
                 <div class="mb-4">
-                    <label class="form-label font-semibold text-dark text-14">Specification Image (JPG, PNG, WEBP)</label>
+                    <label class="form-label font-semibold text-dark text-14">Specification File / Document (PDF, JPG, PNG)</label>
                     
-                    @if($product->specification_image || ($product->specification_url && str_contains($product->specification_url, 'Specification')))
-                    @php $specDisplayUrl = $product->specification_image ?: $product->specification_url; @endphp
-                    <div class="mb-3 text-center p-2 bg-light rounded border" id="specImagePreviewWrap">
-                        <img src="{{ asset($specDisplayUrl) }}" id="specImagePreview" class="img-fluid rounded border max-h-180 mb-2" alt="Specification">
-                        <div class="text-12 font-semibold text-dark">{{ basename($specDisplayUrl) }}</div>
-                        <div class="text-11 text-muted mb-2">Path: <code>{{ $specDisplayUrl }}</code></div>
-                        <div class="form-check form-switch d-inline-block text-start">
+                    @if($product->spec_pdf_url)
+                    @php 
+                        $specPath = $product->spec_pdf_url;
+                        $specFileName = basename($specPath);
+                    @endphp
+                    <div class="mb-3 p-3 bg-light rounded border" id="specImagePreviewWrap">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <div>
+                                <div class="font-semibold text-dark text-13"><i class="fa-solid fa-file-pdf text-danger me-1"></i> Current File: <code>assets/pdf/Specification/{{ $specFileName }}</code></div>
+                            </div>
+                            <a href="{{ asset('assets/pdf/Specification/' . $specFileName) }}" target="_blank" class="btn btn-sm btn-outline-primary font-semibold text-12">
+                                <i class="fa-solid fa-arrow-up-right-from-square me-1"></i> View Specification PDF
+                            </a>
+                        </div>
+                        <div class="form-check form-switch text-start pt-1">
                             <input class="form-check-input me-2" type="checkbox" name="remove_specification_image" value="1" id="removeSpecImg">
-                            <label class="form-check-label text-12 text-danger font-semibold" for="removeSpecImg">Remove Specification Image</label>
+                            <label class="form-check-label text-12 text-danger font-semibold" for="removeSpecImg">Remove Specification File</label>
                         </div>
                     </div>
                     @else
-                    <div class="mb-2 text-13 text-muted">No specification image uploaded yet.</div>
+                    <div class="mb-2 text-13 text-muted">No specification file uploaded yet.</div>
                     @endif
 
-                    <input type="file" name="specification_image" class="form-control @error('specification_image') is-invalid @enderror" accept="image/jpeg,image/png,image/webp" id="specImageInput">
+                    <input type="file" name="specification_image" class="form-control @error('specification_image') is-invalid @enderror" accept=".pdf,image/jpeg,image/png,image/webp" id="specImageInput">
                     @error('specification_image')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
 
+                <!-- MSDS / Certificate File Field -->
                 <div class="mb-0">
-                    <label class="form-label font-semibold text-dark text-14">MSDS / Certificate File (PDF, JPG, PNG, WEBP)</label>
+                    <label class="form-label font-semibold text-dark text-14">MSDS / Certificate File (PDF)</label>
                     
-                    @if($product->msds_url && $product->msds_url !== '#')
-                    <div class="mb-2 p-2 bg-light rounded border text-13">
-                        <div class="font-semibold text-dark mb-1"><i class="fa-solid fa-file-lines text-primary me-1"></i> Current File: <code>{{ $product->msds_url }}</code></div>
+                    @if($product->msds_pdf_url)
+                    @php 
+                        $msdsPath = $product->msds_pdf_url;
+                        $msdsFileName = basename($msdsPath);
+                    @endphp
+                    <div class="mb-2 p-3 bg-light rounded border text-13">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <div>
+                                <div class="font-semibold text-dark text-13"><i class="fa-solid fa-file-pdf text-danger me-1"></i> Current File: <code>assets/pdf/MSDC/{{ $msdsFileName }}</code></div>
+                            </div>
+                            <a href="{{ asset('assets/pdf/MSDC/' . $msdsFileName) }}" target="_blank" class="btn btn-sm btn-outline-primary font-semibold text-12">
+                                <i class="fa-solid fa-arrow-up-right-from-square me-1"></i> View MSDS PDF
+                            </a>
+                        </div>
                         <div class="form-check form-switch d-inline-block">
                             <input class="form-check-input me-2" type="checkbox" name="remove_msds" value="1" id="removeMsds">
                             <label class="form-check-label text-12 text-danger font-semibold" for="removeMsds">Remove MSDS / Certificate File</label>

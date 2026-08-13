@@ -95,18 +95,14 @@
 
                         <!-- 6. Action Buttons: MSDS, Specification & Back -->
                         <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:28px;">
-                            @if(!empty($product->msds_url) && $product->msds_url !== '#')
-                            <a href="{{ asset($product->msds_url) }}" target="_blank" style="background:#059669; color:#fff; font-size:14px; font-weight:600; padding:10px 24px; border-radius:3px; text-decoration:none; display:inline-block; transition:all 0.2s ease;">
+                            @if(!empty($product->msds_pdf_url))
+                            <a href="{{ asset($product->msds_pdf_url) }}" target="_blank" style="background:#059669; color:#fff; font-size:14px; font-weight:600; padding:10px 24px; border-radius:3px; text-decoration:none; display:inline-block; transition:all 0.2s ease;">
                                 MSDS
                             </a>
                             @endif
 
                             @if(!empty($product->spec_pdf_url))
                             <a href="{{ asset($product->spec_pdf_url) }}" target="_blank" style="background:#2563eb; color:#fff; font-size:14px; font-weight:600; padding:10px 24px; border-radius:3px; text-decoration:none; display:inline-block; transition:all 0.2s ease;">
-                                Specification
-                            </a>
-                            @elseif(!empty($product->specification_url) && $product->specification_url !== '#')
-                            <a href="{{ asset($product->specification_url) }}" target="_blank" style="background:#2563eb; color:#fff; font-size:14px; font-weight:600; padding:10px 24px; border-radius:3px; text-decoration:none; display:inline-block; transition:all 0.2s ease;">
                                 Specification
                             </a>
                             @endif

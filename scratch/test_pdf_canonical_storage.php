@@ -17,7 +17,7 @@ echo "==================================================\n";
 $dummy = new Product();
 
 // Test MSDS Accessor
-$dummy->msds_url = "uploads/msds/Nitric Acid.pdf";
+$dummy->msds_url = 'uploads/msds/Nitric Acid.pdf';
 $msdsAccessor = $dummy->msds_pdf_url;
 $msdsPublicUrl = asset($msdsAccessor);
 
@@ -31,7 +31,7 @@ if ($msdsAccessor !== 'assets/pdf/MSDC/Nitric Acid.pdf') {
 }
 
 // Test Specification Accessor
-$dummy->specification_url = "uploads/specifications/Nitric Acid.pdf";
+$dummy->specification_url = 'uploads/specifications/Nitric Acid.pdf';
 $specAccessor = $dummy->spec_pdf_url;
 $specPublicUrl = asset($specAccessor);
 
@@ -70,8 +70,8 @@ echo "==================================================\n";
 $msdcDir = public_path('assets/pdf/MSDC');
 $specDir = public_path('assets/pdf/Specification');
 
-echo "MSDC Directory Exists: " . (file_exists($msdcDir) ? 'YES' : 'NO') . "\n";
-echo "Specification Directory Exists: " . (file_exists($specDir) ? 'YES' : 'NO') . "\n";
+echo 'MSDC Directory Exists: ' . (file_exists($msdcDir) ? 'YES' : 'NO') . "\n";
+echo 'Specification Directory Exists: ' . (file_exists($specDir) ? 'YES' : 'NO') . "\n";
 
 // Test matching logic
 $allProducts = Product::all();
