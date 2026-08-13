@@ -9,19 +9,24 @@ use Illuminate\Support\Str;
 class ProductFilenameMatcher
 {
     /**
+     * Map unicode subscript characters to standard ASCII digits.
+     */
+    protected array $subscriptMap = [
+        '₀' => '0', '₁' => '1', '₂' => '2', '₃' => '3', '₄' => '4',
+        '₅' => '5', '₆' => '6', '₇' => '7', '₈' => '8', '₉' => '9',
+    ];
+
+    /**
+     * Non-essential stop words to ignore during token comparison.
+     */
+    protected array $stopWords = [
+        'photo', 'image', 'pic', 'product', 'file', 'main', 'thumb', 'thumbnail',
+        'catalog', 'datasheet', 'msds', 'msdc', 'specification', 'spec', 'tds', 'sdc',
+        'certificate', 'chemical', 'grade', 'pct', 'percent', '%'
+    ];
+
+    /**
      * Centralized filename normalization method.
-     *
-     * Rules:
-     * 1. Remove file extension case-insensitively (.jpg, .png, .pdf, etc.)
-     * 2. Convert to lowercase UTF-8
-     * 3. Replace hyphens (-), underscores (_), slashes, brackets, and special characters with spaces
-     * 4. Collapse multiple spaces to a single space
-     * 5. Trim leading/trailing whitespace
-     *
-     * Examples:
-     * "Phosphoric-Acid.jpg" -> "phosphoric acid"
-     * "PHOSPHORIC_ACID.PNG" -> "phosphoric acid"
-     * "Nitric Acid (1).jpg" -> "nitric acid 1"
      */
     public function normalizeFilename(string $filename): string
     {
@@ -31,21 +36,24 @@ class ProductFilenameMatcher
             $base = pathinfo($filename, PATHINFO_FILENAME);
         }
 
-        // 2. Lowercase
+        // 2. Lowercase UTF-8
         $str = mb_strtolower($base, 'UTF-8');
 
-        // 3. Replace hyphens, underscores, brackets, and special characters with spaces
+        // 3. Convert subscript characters
+        $str = strtr($str, $this->subscriptMap);
+
+        // 4. Replace hyphens, underscores, brackets, slashes, and punctuation with spaces
         $str = str_replace(['-', '_'], ' ', $str);
         $str = preg_replace('~[()\[\]{},.\-\\\\/+&%*#@!$^:;"\']~u', ' ', $str);
 
-        // 4. Collapse multiple spaces to single space and trim
+        // 5. Collapse multiple spaces and trim
         $str = preg_replace('/\s+/', ' ', $str);
 
         return trim($str);
     }
 
     /**
-     * Normalize product string (name, chemical_name, or slug) in the exact same manner as filenames.
+     * Normalize product string (name, chemical_name, or slug) identically.
      */
     public function normalizeProductString(?string $input): string
     {
@@ -54,6 +62,7 @@ class ProductFilenameMatcher
         }
 
         $str = mb_strtolower(trim($input), 'UTF-8');
+        $str = strtr($str, $this->subscriptMap);
         $str = str_replace(['-', '_'], ' ', $str);
         $str = preg_replace('~[()\[\]{},.\-\\\\/+&%*#@!$^:;"\']~u', ' ', $str);
         $str = preg_replace('/\s+/', ' ', $str);
@@ -62,7 +71,7 @@ class ProductFilenameMatcher
     }
 
     /**
-     * Remove parenthetical expressions from product names e.g. "Hydrochloric Acid (HCl)" -> "Hydrochloric Acid"
+     * Get base product string by removing parenthetical expressions e.g. "Caustic Soda Prills (NaOH)" -> "caustic soda prills"
      */
     public function getBaseProductString(?string $input): string
     {
@@ -75,7 +84,25 @@ class ProductFilenameMatcher
     }
 
     /**
-     * Strip common upload copy/version suffixes e.g. "nitric acid 1" -> "nitric acid", "nitric acid copy" -> "nitric acid"
+     * Extract clean tokens from a normalized string, ignoring stop words.
+     */
+    public function tokenize(string $normalized): array
+    {
+        $words = explode(' ', $normalized);
+        $tokens = [];
+
+        foreach ($words as $w) {
+            $w = trim($w);
+            if ($w !== '' && !in_array($w, $this->stopWords, true)) {
+                $tokens[] = $w;
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
+    /**
+     * Strip common upload version/copy suffixes e.g. "nitric acid 1" -> "nitric acid"
      */
     public function stripVersionSuffix(string $normalized): string
     {
@@ -84,15 +111,7 @@ class ProductFilenameMatcher
     }
 
     /**
-     * Unified product matching engine.
-     *
-     * Returns:
-     * [
-     *   'status' => 'SUCCESS' | 'ALREADY EXISTS' | 'AMBIGUOUS' | 'NOT FOUND',
-     *   'matched_product_id' => int|null,
-     *   'matched_product_name' => string|null,
-     *   'message' => string
-     * ]
+     * Enhanced Category-Aware & Token-Based Product Filename Matching Engine.
      */
     public function matchFilenameToProduct(
         string $filename,
@@ -108,144 +127,209 @@ class ProductFilenameMatcher
                 'status' => 'NOT FOUND',
                 'matched_product_id' => null,
                 'matched_product_name' => null,
+                'matched_category' => null,
+                'match_method' => 'NONE',
+                'confidence' => 'LOW',
                 'message' => 'Filename normalization resulted in an empty string.'
             ];
         }
 
-        $exactMatches = collect();
-        $chemicalMatches = collect();
-        $slugMatches = collect();
-        $strippedMatches = collect();
+        $fileTokens = $this->tokenize($normFilename);
+
+        $exactNameMatches = collect();
+        $exactChemMatches = collect();
+        $exactSlugMatches = collect();
+        $versionMatches  = collect();
         $baseNameMatches = collect();
-        $partialMatches = collect();
+        $tokenMatches    = collect();
 
         foreach ($allProducts as $product) {
-            $normName = $this->normalizeProductString($product->name);
+            $prodName = $product->name;
+            $normName = $this->normalizeProductString($prodName);
+            $baseName = $this->getBaseProductString($prodName);
+
             $normChem = $this->normalizeProductString($product->chemical_name ?? '');
             $normSlug = $this->normalizeProductString($product->slug ?? '');
-            $baseName = $this->getBaseProductString($product->name);
+
+            $catName  = $product->category->name ?? ($product['category']['name'] ?? '');
+            $normCat  = $this->normalizeProductString($catName);
 
             // Tier 1: Exact Name
             if ($normFilename === $normName) {
-                $exactMatches->push($product);
+                $exactNameMatches->push(['product' => $product, 'method' => 'EXACT_NAME', 'confidence' => 'HIGH']);
             }
 
             // Tier 2: Exact Chemical Name
             if (!empty($normChem) && $normFilename === $normChem) {
-                $chemicalMatches->push($product);
+                $exactChemMatches->push(['product' => $product, 'method' => 'EXACT_CHEMICAL', 'confidence' => 'HIGH']);
             }
 
             // Tier 3: Exact Slug
             if (!empty($normSlug) && $normFilename === $normSlug) {
-                $slugMatches->push($product);
+                $exactSlugMatches->push(['product' => $product, 'method' => 'EXACT_SLUG', 'confidence' => 'HIGH']);
             }
 
-            // Tier 4: Version/Copy Suffix Stripped Match
+            // Tier 4: Version Suffix Match
             if ($strippedFilename !== $normFilename) {
                 if ($strippedFilename === $normName || (!empty($normChem) && $strippedFilename === $normChem) || (!empty($normSlug) && $strippedFilename === $normSlug)) {
-                    $strippedMatches->push($product);
+                    $versionMatches->push(['product' => $product, 'method' => 'VERSION_STRIPPED', 'confidence' => 'HIGH']);
                 }
             }
 
-            // Tier 5: Base Product Name Match (without brackets)
+            // Tier 5: Base Product Name Match (without parenthetical formula)
             if ($baseName !== '' && ($normFilename === $baseName || $strippedFilename === $baseName)) {
-                $baseNameMatches->push($product);
+                $baseNameMatches->push(['product' => $product, 'method' => 'BASE_NAME', 'confidence' => 'HIGH']);
             }
 
-            // Tier 6: Substring / Partial match candidate detection for ambiguity protection
-            $target = $baseName !== '' ? $baseName : $normName;
-            if (!empty($target) && strlen($normFilename) >= 3) {
-                // If the normalized filename matches a whole word within the product name e.g. "Acid" in "Nitric Acid"
-                if (preg_match('/\b' . preg_quote($normFilename, '/') . '\b/i', $target) || preg_match('/\b' . preg_quote($target, '/') . '\b/i', $normFilename)) {
+            // Tier 6: Token-Set Match & Category Disambiguation
+            $productNameTokens = $this->tokenize($normName);
+            $baseNameTokens = $this->tokenize($baseName);
+            $categoryTokens = $this->tokenize($normCat);
+
+            // Check if all essential base name tokens (e.g., ["caustic", "soda", "prills"]) are present in fileTokens
+            $targetTokens = !empty($baseNameTokens) ? $baseNameTokens : $productNameTokens;
+            if (!empty($targetTokens)) {
+                $missingTokens = array_diff($targetTokens, $fileTokens);
+                if (empty($missingTokens)) {
+                    // Check if category tokens are also matched in filename (for disambiguation)
+                    $catMatchCount = count(array_intersect($categoryTokens, $fileTokens));
+                    $tokenMatches->push([
+                        'product' => $product,
+                        'method' => $catMatchCount > 0 ? 'CATEGORY_TOKEN_MATCH' : 'TOKEN_MATCH',
+                        'confidence' => 'HIGH',
+                        'cat_matches' => $catMatchCount,
+                        'total_tokens' => count($targetTokens) + $catMatchCount,
+                    ]);
+                }
+            }
+        }
+
+        // Determine candidates in strict tier priority order
+        $tierCandidates = collect();
+
+        if ($exactNameMatches->isNotEmpty()) {
+            $tierCandidates = $exactNameMatches;
+        } elseif ($exactChemMatches->isNotEmpty()) {
+            $tierCandidates = $exactChemMatches;
+        } elseif ($exactSlugMatches->isNotEmpty()) {
+            $tierCandidates = $exactSlugMatches;
+        } elseif ($versionMatches->isNotEmpty()) {
+            $tierCandidates = $versionMatches;
+        } elseif ($baseNameMatches->isNotEmpty()) {
+            $tierCandidates = $baseNameMatches;
+        } elseif ($tokenMatches->isNotEmpty()) {
+            // Sort token matches by highest category match and total tokens matched
+            $sorted = $tokenMatches->sortByDesc('cat_matches')->sortByDesc('total_tokens');
+            $maxCatMatches = $sorted->first()['cat_matches'];
+            $maxTotalTokens = $sorted->first()['total_tokens'];
+
+            // Keep candidates that tied for top token match score
+            $tierCandidates = $sorted->filter(fn($m) => $m['cat_matches'] === $maxCatMatches && $m['total_tokens'] === $maxTotalTokens);
+        }
+
+        // Tier 7: Partial Overlap Search for Ambiguity Protection (e.g. acid.jpg matching multiple products)
+        if ($tierCandidates->isEmpty()) {
+            $partialMatches = collect();
+            foreach ($allProducts as $product) {
+                $normName = $this->normalizeProductString($product->name);
+                $baseName = $this->getBaseProductString($product->name);
+                $targetTokens = array_merge($this->tokenize($normName), $this->tokenize($baseName));
+
+                $intersection = array_intersect($fileTokens, $targetTokens);
+                if (!empty($intersection)) {
                     $partialMatches->push($product);
                 }
             }
-        }
 
-        // Determine matching candidates in strict priority order
-        $candidates = collect();
-        if ($exactMatches->isNotEmpty()) {
-            $candidates = $exactMatches->unique('id');
-        } elseif ($chemicalMatches->isNotEmpty()) {
-            $candidates = $chemicalMatches->unique('id');
-        } elseif ($slugMatches->isNotEmpty()) {
-            $candidates = $slugMatches->unique('id');
-        } elseif ($strippedMatches->isNotEmpty()) {
-            $candidates = $strippedMatches->unique('id');
-        } elseif ($baseNameMatches->isNotEmpty()) {
-            $candidates = $baseNameMatches->unique('id');
-        }
+            $uniquePartials = $partialMatches->unique('id');
+            if ($uniquePartials->count() > 1) {
+                $names = $uniquePartials->map(function($p) {
+                    $c = $p->category->name ?? '';
+                    return $c ? "{$p->name} ({$c})" : $p->name;
+                })->slice(0, 5)->implode(', ');
 
-        // If high-priority Tiers (1-5) yielded multiple matches -> AMBIGUOUS
-        if ($candidates->count() > 1) {
-            $matchedNames = $candidates->pluck('name')->implode(', ');
-            return [
-                'status' => 'AMBIGUOUS',
-                'matched_product_id' => null,
-                'matched_product_name' => null,
-                'message' => "Multiple products matched ({$matchedNames}). Manual assignment required."
-            ];
-        }
-
-        // If Tiers 1-5 found exactly 1 product match -> SUCCESS
-        if ($candidates->count() === 1) {
-            /** @var Product $matchedProduct */
-            $matchedProduct = $candidates->first();
-
-            $hasExisting = false;
-            if ($fileType === 'image') {
-                $hasExisting = !empty($matchedProduct->image_url);
-            } elseif ($fileType === 'specification') {
-                $hasExisting = !empty($matchedProduct->specification_url) || !empty($matchedProduct->specification_image);
-            } else { // msds
-                $hasExisting = !empty($matchedProduct->msds_url);
-            }
-
-            if ($hasExisting && $mode === 'skip') {
                 return [
-                    'status' => 'ALREADY EXISTS',
-                    'matched_product_id' => $matchedProduct->id,
-                    'matched_product_name' => $matchedProduct->name,
-                    'message' => "Product '{$matchedProduct->name}' already has an attached " . strtoupper($fileType) . " file. Skipped per settings."
+                    'status' => 'AMBIGUOUS',
+                    'matched_product_id' => null,
+                    'matched_product_name' => null,
+                    'matched_category' => null,
+                    'match_method' => 'AMBIGUOUS',
+                    'confidence' => 'LOW',
+                    'message' => "Multiple candidate products matched ({$names}). Manual assignment required."
                 ];
+            } elseif ($uniquePartials->count() === 1) {
+                $tierCandidates->push(['product' => $uniquePartials->first(), 'method' => 'TOKEN_MATCH', 'confidence' => 'HIGH']);
             }
-
-            return [
-                'status' => 'SUCCESS',
-                'matched_product_id' => $matchedProduct->id,
-                'matched_product_name' => $matchedProduct->name,
-                'message' => "Successfully matched to product '{$matchedProduct->name}'."
-            ];
         }
 
-        // Tier 6: No exact match found, but partial word matches exist
-        $uniquePartials = $partialMatches->unique('id');
-        if ($uniquePartials->count() > 1) {
-            $names = $uniquePartials->pluck('name')->slice(0, 5)->implode(', ');
+        // Distinct product IDs matching
+        $uniqueProducts = $tierCandidates->pluck('product')->unique('id');
+
+        // AMBIGUITY PROTECTION: If multiple products match at top tier -> AMBIGUOUS
+        if ($uniqueProducts->count() > 1) {
+            $names = $uniqueProducts->map(function($p) {
+                $c = $p->category->name ?? '';
+                return $c ? "{$p->name} ({$c})" : $p->name;
+            })->implode(', ');
+
             return [
                 'status' => 'AMBIGUOUS',
                 'matched_product_id' => null,
                 'matched_product_name' => null,
-                'message' => "Multiple partial products matched ({$names}). Manual assignment required."
+                'matched_category' => null,
+                'match_method' => 'AMBIGUOUS',
+                'confidence' => 'LOW',
+                'message' => "Multiple products matched ({$names}). Manual assignment required."
             ];
         }
 
-        if ($uniquePartials->count() === 1) {
-            /** @var Product $matchedProduct */
-            $matchedProduct = $uniquePartials->first();
+        if ($uniqueProducts->isEmpty()) {
             return [
-                'status' => 'SUCCESS',
-                'matched_product_id' => $matchedProduct->id,
-                'matched_product_name' => $matchedProduct->name,
-                'message' => "Successfully matched to candidate product '{$matchedProduct->name}'."
+                'status' => 'NOT FOUND',
+                'matched_product_id' => null,
+                'matched_product_name' => null,
+                'matched_category' => null,
+                'match_method' => 'NONE',
+                'confidence' => 'LOW',
+                'message' => "No matching product found for '{$filename}'."
+            ];
+        }
+
+        // Exactly ONE product matched!
+        $match = $tierCandidates->first();
+        /** @var Product $product */
+        $product = $match['product'];
+        $catName = $product->category->name ?? ($product['category']['name'] ?? 'General');
+
+        $hasExisting = false;
+        if ($fileType === 'image') {
+            $hasExisting = !empty($product->image_url);
+        } elseif ($fileType === 'specification') {
+            $hasExisting = !empty($product->specification_url) || !empty($product->specification_image);
+        } else { // msds
+            $hasExisting = !empty($product->msds_url);
+        }
+
+        if ($hasExisting && $mode === 'skip') {
+            return [
+                'status' => 'EXISTING IMAGE',
+                'matched_product_id' => $product->id,
+                'matched_product_name' => $product->name,
+                'matched_category' => $catName,
+                'match_method' => $match['method'],
+                'confidence' => $match['confidence'],
+                'message' => "Product '{$product->name}' already has an assigned " . strtoupper($fileType) . ". Skipped per settings."
             ];
         }
 
         return [
-            'status' => 'NOT FOUND',
-            'matched_product_id' => null,
-            'matched_product_name' => null,
-            'message' => "No matching product found for '{$filename}'."
+            'status' => 'SUCCESS',
+            'matched_product_id' => $product->id,
+            'matched_product_name' => $product->name,
+            'matched_category' => $catName,
+            'match_method' => $match['method'],
+            'confidence' => $match['confidence'],
+            'message' => "Successfully matched to product '{$product->name}' ({$catName}) via {$match['method']}."
         ];
     }
 }

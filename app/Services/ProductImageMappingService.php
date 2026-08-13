@@ -32,7 +32,7 @@ class ProductImageMappingService
     public function matchFilenameToProduct(string $originalFilename, $allProducts = null, string $mode = 'skip'): array
     {
         if (is_null($allProducts)) {
-            $allProducts = Product::all();
+            $allProducts = Product::with('category')->get();
         } elseif (is_array($allProducts)) {
             $allProducts = collect($allProducts)->map(fn($p) => is_array($p) ? (object)$p : $p);
         }
@@ -42,6 +42,7 @@ class ProductImageMappingService
         $status = $res['status'];
         $productId = $res['matched_product_id'];
         $productName = $res['matched_product_name'];
+        $categoryName = $res['matched_category'] ?? null;
         $productObj = $productId ? Product::find($productId) : null;
 
         return [
@@ -49,12 +50,15 @@ class ProductImageMappingService
             'norm_filename' => $this->normalizeFilename($originalFilename),
             'product_id' => $productId,
             'product_name' => $productName,
+            'matched_category' => $categoryName,
+            'match_method' => $res['match_method'] ?? 'UNKNOWN',
+            'confidence' => $res['confidence'] ?? 'HIGH',
             'product' => $productObj,
             'status' => $status === 'SUCCESS' ? 'MATCHED' : $status,
             'message' => $res['message'],
             'badge_class' => match ($status) {
                 'SUCCESS', 'MATCHED' => 'bg-success',
-                'ALREADY EXISTS' => 'bg-info text-dark',
+                'EXISTING IMAGE', 'ALREADY EXISTS' => 'bg-info text-dark',
                 'AMBIGUOUS' => 'bg-warning text-dark',
                 default => 'bg-secondary',
             },
