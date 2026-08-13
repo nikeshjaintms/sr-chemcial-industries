@@ -96,7 +96,11 @@ class ProductFilenameMatcher
         $str = str_replace(['-', '_'], ' ', $str);
         $str = preg_replace('~[()\[\]{},.\-\\\\/+&%*#@!$^:;"\']~u', ' ', $str);
 
-        // 6. Collapse multiple spaces and trim
+        // 6. Normalize chemical spelling variations e.g. "chlorid" -> "chloride", "sulphur" -> "sulfur"
+        $str = preg_replace('/\bchlorid\b/u', 'chloride', $str);
+        $str = preg_replace('/\bsulphur/u', 'sulfur', $str);
+
+        // 7. Collapse multiple spaces and trim
         $str = preg_replace('/\s+/', ' ', $str);
 
         return trim($str);
@@ -115,6 +119,8 @@ class ProductFilenameMatcher
         $str = strtr($str, $this->subscriptMap);
         $str = str_replace(['-', '_'], ' ', $str);
         $str = preg_replace('~[()\[\]{},.\-\\\\/+&%*#@!$^:;"\']~u', ' ', $str);
+        $str = preg_replace('/\bchlorid\b/u', 'chloride', $str);
+        $str = preg_replace('/\bsulphur/u', 'sulfur', $str);
         $str = preg_replace('/\s+/', ' ', $str);
 
         return trim($str);
@@ -302,54 +308,106 @@ class ProductFilenameMatcher
         } elseif ($baseNameMatches->isNotEmpty()) {
             $tierCandidates = $baseNameMatches;
         } elseif ($tokenMatches->isNotEmpty()) {
-            // Sort token matches by highest category match and total tokens matched
-            $sorted = $tokenMatches->sortByDesc('cat_matches')->sortByDesc('total_tokens');
-            $maxCatMatches = $sorted->first()['cat_matches'];
-            $maxTotalTokens = $sorted->first()['total_tokens'];
+            // Add core token match ratio (matched_tokens / total_target_tokens) to tokenMatches
+            $tokenMatches = $tokenMatches->map(function($m) {
+                $prod = $m['product'];
+                $prodName = (string)$this->getProductProp($prod, 'name', '');
+                $baseName = $this->getBaseProductString($prodName) ?: $this->normalizeProductString($prodName);
+                $targetTokens = $this->tokenize($baseName);
+                $targetCount = count($targetTokens) ?: 1;
+                $m['core_match_ratio'] = round($m['matched_tokens'] / $targetCount, 2);
+                return $m;
+            });
 
-            // Keep candidates that tied for top token match score
-            $tierCandidates = $sorted->filter(fn($m) => $m['cat_matches'] === $maxCatMatches && $m['total_tokens'] === $maxTotalTokens);
+            // Sort token matches by highest category match, highest core_match_ratio, highest matched_tokens, and total_tokens
+            $sorted = $tokenMatches->sortByDesc('cat_matches')->sortByDesc('core_match_ratio')->sortByDesc('matched_tokens')->sortByDesc('total_tokens');
+            $maxCatMatches = $sorted->first()['cat_matches'];
+            $maxRatio = $sorted->first()['core_match_ratio'];
+            $maxMatchedTokens = $sorted->first()['matched_tokens'];
+
+            // Keep candidates that tied for top score
+            $tierCandidates = $sorted->filter(fn($m) => 
+                $m['cat_matches'] === $maxCatMatches && 
+                $m['core_match_ratio'] >= $maxRatio && 
+                $m['matched_tokens'] >= $maxMatchedTokens
+            );
         }
 
-        // Tier 7: Partial Overlap Search for Ambiguity Protection (e.g. acid.jpg matching multiple products)
+        // Tier 7: Partial Overlap Search with Highest-Score Filtering
         if ($tierCandidates->isEmpty()) {
             $partialMatches = collect();
             foreach ($allProducts as $product) {
                 $prodName = (string)$this->getProductProp($product, 'name', '');
                 $normName = $this->normalizeProductString($prodName);
                 $baseName = $this->getBaseProductString($prodName);
-                $targetTokens = array_merge($this->tokenize($normName), $this->tokenize($baseName));
+                $targetTokens = array_values(array_unique(array_merge($this->tokenize($normName), $this->tokenize($baseName))));
 
                 $intersection = array_intersect($fileTokens, $targetTokens);
-                if (!empty($intersection)) {
-                    $partialMatches->push($product);
+                $matchCount = count($intersection);
+                if ($matchCount > 0) {
+                    $partialMatches->push([
+                        'product' => $product,
+                        'matched_count' => $matchCount,
+                        'ratio' => round($matchCount / (count($targetTokens) ?: 1), 2),
+                    ]);
                 }
             }
 
-            $uniquePartials = $partialMatches->unique(fn($p) => $this->getProductProp($p, 'id'));
-            if ($uniquePartials->count() > 1) {
-                $names = $uniquePartials->map(function($p) {
-                    $n = $this->getProductProp($p, 'name');
-                    $c = $this->getCategoryName($p);
-                    return $c ? "{$n} ({$c})" : $n;
-                })->slice(0, 5)->implode(', ');
+            if ($partialMatches->isNotEmpty()) {
+                $maxMatched = $partialMatches->max('matched_count');
+                $maxRatio = $partialMatches->where('matched_count', $maxMatched)->max('ratio');
 
-                return [
-                    'status' => 'AMBIGUOUS',
-                    'matched_product_id' => null,
-                    'matched_product_name' => null,
-                    'matched_category' => null,
-                    'match_method' => 'AMBIGUOUS',
-                    'confidence' => 'LOW',
-                    'message' => "Multiple candidate products matched ({$names}). Manual assignment required."
-                ];
-            } elseif ($uniquePartials->count() === 1) {
-                $tierCandidates->push(['product' => $uniquePartials->first(), 'method' => 'TOKEN_MATCH', 'confidence' => 'HIGH']);
+                $bestMatches = $partialMatches->filter(fn($m) => 
+                    $m['matched_count'] === $maxMatched && $m['ratio'] >= $maxRatio
+                )->pluck('product')->unique(fn($p) => $this->getProductProp($p, 'id'));
+
+                if ($bestMatches->count() === 1) {
+                    $tierCandidates->push(['product' => $bestMatches->first(), 'method' => 'TOKEN_MATCH', 'confidence' => 'HIGH']);
+                } elseif ($bestMatches->count() > 1) {
+                    // Check if candidate products have duplicate exact names
+                    $normalizedBaseNames = $bestMatches->map(fn($p) => $this->getBaseProductString($this->getProductProp($p, 'name')))->unique();
+                    if ($normalizedBaseNames->count() === 1) {
+                        $unassigned = $bestMatches->first(fn($p) => empty($this->getProductProp($p, 'image_url')) || $this->getProductProp($p, 'image_url') === '#');
+                        $chosen = $unassigned ?: $bestMatches->first();
+                        $tierCandidates->push(['product' => $chosen, 'method' => 'DUPLICATE_NAME_AUTO', 'confidence' => 'HIGH']);
+                    } else {
+                        $names = $bestMatches->map(function($p) {
+                            $n = $this->getProductProp($p, 'name');
+                            $c = $this->getCategoryName($p);
+                            return $c ? "{$n} ({$c})" : $n;
+                        })->slice(0, 5)->implode(', ');
+
+                        return [
+                            'status' => 'AMBIGUOUS',
+                            'matched_product_id' => null,
+                            'matched_product_name' => null,
+                            'matched_category' => null,
+                            'match_method' => 'AMBIGUOUS',
+                            'confidence' => 'LOW',
+                            'message' => "Multiple candidate products matched ({$names}). Manual assignment required."
+                        ];
+                    }
+                }
             }
         }
 
         // Distinct product IDs matching
         $uniqueProducts = $tierCandidates->pluck('product')->unique(fn($p) => $this->getProductProp($p, 'id'));
+
+        // DUPLICATE PRODUCT NAME DISAMBIGUATION: If matched candidates have the exact same core product name (e.g. "Hydrazine Hydrate" or "Chloroform" in multiple categories)
+        if ($uniqueProducts->count() > 1) {
+            $normalizedBaseNames = $uniqueProducts->map(fn($p) => $this->getBaseProductString($this->getProductProp($p, 'name')))->unique();
+            if ($normalizedBaseNames->count() === 1) {
+                // Prefer the product candidate that currently does NOT have an assigned image_url
+                $unassignedCandidate = $uniqueProducts->first(function($p) {
+                    $img = $this->getProductProp($p, 'image_url');
+                    return empty($img) || $img === '#';
+                });
+                $candidateToUse = $unassignedCandidate ?: $uniqueProducts->first();
+                $tierCandidates = collect([['product' => $candidateToUse, 'method' => 'DUPLICATE_NAME_AUTO', 'confidence' => 'HIGH']]);
+                $uniqueProducts = collect([$candidateToUse]);
+            }
+        }
 
         // AMBIGUITY PROTECTION: If multiple products match at top tier -> AMBIGUOUS
         if ($uniqueProducts->count() > 1) {

@@ -727,6 +727,9 @@ class ProductAdminController extends Controller
 
     public function showBulkImageForm(Request $request, \App\Services\ProductImageMappingService $mappingService)
     {
+        // Auto-resync existing images from public/assets/products and public/assets/img/added/product
+        $mappingService->resyncExistingImages();
+
         $audit = $mappingService->auditProducts();
         $products = Product::orderBy('name', 'asc')->get();
         $candidateImages = $mappingService->getCandidateImages();
@@ -1061,6 +1064,7 @@ class ProductAdminController extends Controller
 
     public function showDuplicateImages(\App\Services\ProductImageMappingService $mappingService)
     {
+        $mappingService->resyncExistingImages();
         $audit = $mappingService->auditProducts();
         $products = Product::orderBy('name', 'asc')->get();
         $candidateImages = $mappingService->getCandidateImages();

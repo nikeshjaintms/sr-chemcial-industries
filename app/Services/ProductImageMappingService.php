@@ -124,19 +124,22 @@ class ProductImageMappingService
 
     /**
      * Candidate images helper for Media Library view.
-     * Scans ONLY the canonical product image directory: public/assets/products.
+     * Scans canonical product image directory public/assets/products as well as public/assets/img/added/product.
      */
     public function getCandidateImages(): array
     {
-        $targetDir = str_replace('\\', '/', public_path('assets/products'));
-        if (!file_exists($targetDir)) {
-            @mkdir($targetDir, 0755, true);
-        }
+        $dirs = [
+            public_path('assets/products'),
+            public_path('assets/img/added/product'),
+        ];
 
         $images = [];
         $seenPaths = [];
 
-        if (file_exists($targetDir) && is_dir($targetDir)) {
+        foreach ($dirs as $targetDirRaw) {
+            $targetDir = str_replace('\\', '/', $targetDirRaw);
+            if (!file_exists($targetDir) || !is_dir($targetDir)) continue;
+
             $files = glob(rtrim($targetDir, '/') . '/*');
             if (empty($files)) {
                 $scanned = @scandir($targetDir) ?: [];
@@ -154,12 +157,18 @@ class ProductImageMappingService
                 $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                 if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) continue;
 
-                $realPath = str_replace('\\', '/', realpath($file) ?: $file);
+                $fileName = basename($file);
+                $canonicalFile = public_path('assets/products/' . $fileName);
+                if (!file_exists($canonicalFile)) {
+                    @mkdir(public_path('assets/products'), 0755, true);
+                    @copy($file, $canonicalFile);
+                }
+
+                $realPath = str_replace('\\', '/', realpath($canonicalFile) ?: $canonicalFile);
                 $keyPath = strtolower($realPath);
                 if (isset($seenPaths[$keyPath])) continue;
                 $seenPaths[$keyPath] = true;
 
-                $fileName = basename($file);
                 $relPath = 'assets/products/' . $fileName;
                 $normFilename = $this->normalizeFilename($fileName);
                 $rawFilename = pathinfo($fileName, PATHINFO_FILENAME);
@@ -238,7 +247,9 @@ class ProductImageMappingService
 
                 if ($product) {
                     $oldPath = $product->image_url;
-                    if ($oldPath === $relPath) {
+                    $oldExists = !empty($oldPath) && file_exists(str_replace('\\', '/', public_path(ltrim($oldPath, '/'))));
+
+                    if ($oldPath === $relPath && $oldExists) {
                         $alreadyAssignedCount++;
                     } else {
                         $product->image_url = $relPath;
