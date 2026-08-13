@@ -248,24 +248,34 @@ class ProductFilenameMatcher
                 $baseNameMatches->push(['product' => $product, 'method' => 'BASE_NAME', 'confidence' => 'HIGH']);
             }
 
-            // Tier 6: Token-Set Match & Category Disambiguation
+            // Tier 6: Bi-Directional Core Token-Set Match & Category Disambiguation
             $productNameTokens = $this->tokenize($normName);
             $baseNameTokens = $this->tokenize($baseName);
             $categoryTokens = $this->tokenize($normCat);
 
-            // Check if all essential base name tokens (e.g., ["caustic", "soda", "prills"]) are present in fileTokens
             $targetTokens = !empty($baseNameTokens) ? $baseNameTokens : $productNameTokens;
-            if (!empty($targetTokens)) {
-                $missingTokens = array_diff($targetTokens, $fileTokens);
-                if (empty($missingTokens)) {
-                    // Check if category tokens are also matched in filename (for disambiguation)
+            if (!empty($targetTokens) && !empty($fileTokens)) {
+                // Bi-directional token subset checks:
+                // 1. Target tokens is subset of file tokens (e.g. filename has extra metadata like MDC/50%/hash)
+                $missingTargetInFile = array_diff($targetTokens, $fileTokens);
+                
+                // 2. File tokens is subset of target tokens (e.g. filename is shorter, like "Caustic Soda Prills.jpg" for "Caustic Soda Prills (NaOH)")
+                $missingFileInTarget = array_diff($fileTokens, $targetTokens);
+
+                $isTargetSubset = empty($missingTargetInFile);
+                $isFileSubset = empty($missingFileInTarget);
+
+                if ($isTargetSubset || $isFileSubset) {
                     $catMatchCount = count(array_intersect($categoryTokens, $fileTokens));
+                    $matchedCount = count(array_intersect($targetTokens, $fileTokens));
+
                     $tokenMatches->push([
                         'product' => $product,
                         'method' => $catMatchCount > 0 ? 'CATEGORY_TOKEN_MATCH' : 'TOKEN_MATCH',
                         'confidence' => 'HIGH',
                         'cat_matches' => $catMatchCount,
-                        'total_tokens' => count($targetTokens) + $catMatchCount,
+                        'matched_tokens' => $matchedCount,
+                        'total_tokens' => $matchedCount + $catMatchCount,
                     ]);
                 }
             }
