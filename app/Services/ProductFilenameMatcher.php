@@ -26,6 +26,50 @@ class ProductFilenameMatcher
     ];
 
     /**
+     * Safely read property from an object (Eloquent/stdClass) or array without stdClass/array errors.
+     */
+    public function getProductProp($product, string $prop, $default = null)
+    {
+        if (is_object($product)) {
+            return $product->{$prop} ?? $default;
+        }
+        if (is_array($product)) {
+            return $product[$prop] ?? $default;
+        }
+        return $default;
+    }
+
+    /**
+     * Safely read category name from an object (Eloquent/stdClass) or array.
+     */
+    public function getCategoryName($product): string
+    {
+        if (is_object($product)) {
+            if (isset($product->category)) {
+                if (is_object($product->category)) {
+                    return $product->category->name ?? '';
+                }
+                if (is_array($product->category)) {
+                    return $product->category['name'] ?? '';
+                }
+            }
+            return $product->category_name ?? '';
+        }
+        if (is_array($product)) {
+            if (isset($product['category'])) {
+                if (is_object($product['category'])) {
+                    return $product['category']->name ?? '';
+                }
+                if (is_array($product['category'])) {
+                    return $product['category']['name'] ?? '';
+                }
+            }
+            return $product['category_name'] ?? '';
+        }
+        return '';
+    }
+
+    /**
      * Centralized filename normalization method.
      */
     public function normalizeFilename(string $filename): string
@@ -144,14 +188,14 @@ class ProductFilenameMatcher
         $tokenMatches    = collect();
 
         foreach ($allProducts as $product) {
-            $prodName = $product->name;
+            $prodName = (string)$this->getProductProp($product, 'name', '');
             $normName = $this->normalizeProductString($prodName);
             $baseName = $this->getBaseProductString($prodName);
 
-            $normChem = $this->normalizeProductString($product->chemical_name ?? '');
-            $normSlug = $this->normalizeProductString($product->slug ?? '');
+            $normChem = $this->normalizeProductString((string)$this->getProductProp($product, 'chemical_name', ''));
+            $normSlug = $this->normalizeProductString((string)$this->getProductProp($product, 'slug', ''));
 
-            $catName  = $product->category->name ?? ($product['category']['name'] ?? '');
+            $catName  = $this->getCategoryName($product);
             $normCat  = $this->normalizeProductString($catName);
 
             // Tier 1: Exact Name
@@ -231,8 +275,9 @@ class ProductFilenameMatcher
         if ($tierCandidates->isEmpty()) {
             $partialMatches = collect();
             foreach ($allProducts as $product) {
-                $normName = $this->normalizeProductString($product->name);
-                $baseName = $this->getBaseProductString($product->name);
+                $prodName = (string)$this->getProductProp($product, 'name', '');
+                $normName = $this->normalizeProductString($prodName);
+                $baseName = $this->getBaseProductString($prodName);
                 $targetTokens = array_merge($this->tokenize($normName), $this->tokenize($baseName));
 
                 $intersection = array_intersect($fileTokens, $targetTokens);
@@ -241,11 +286,12 @@ class ProductFilenameMatcher
                 }
             }
 
-            $uniquePartials = $partialMatches->unique('id');
+            $uniquePartials = $partialMatches->unique(fn($p) => $this->getProductProp($p, 'id'));
             if ($uniquePartials->count() > 1) {
                 $names = $uniquePartials->map(function($p) {
-                    $c = $p->category->name ?? '';
-                    return $c ? "{$p->name} ({$c})" : $p->name;
+                    $n = $this->getProductProp($p, 'name');
+                    $c = $this->getCategoryName($p);
+                    return $c ? "{$n} ({$c})" : $n;
                 })->slice(0, 5)->implode(', ');
 
                 return [
@@ -263,13 +309,14 @@ class ProductFilenameMatcher
         }
 
         // Distinct product IDs matching
-        $uniqueProducts = $tierCandidates->pluck('product')->unique('id');
+        $uniqueProducts = $tierCandidates->pluck('product')->unique(fn($p) => $this->getProductProp($p, 'id'));
 
         // AMBIGUITY PROTECTION: If multiple products match at top tier -> AMBIGUOUS
         if ($uniqueProducts->count() > 1) {
             $names = $uniqueProducts->map(function($p) {
-                $c = $p->category->name ?? '';
-                return $c ? "{$p->name} ({$c})" : $p->name;
+                $n = $this->getProductProp($p, 'name');
+                $c = $this->getCategoryName($p);
+                return $c ? "{$n} ({$c})" : $n;
             })->implode(', ');
 
             return [
@@ -297,39 +344,40 @@ class ProductFilenameMatcher
 
         // Exactly ONE product matched!
         $match = $tierCandidates->first();
-        /** @var Product $product */
         $product = $match['product'];
-        $catName = $product->category->name ?? ($product['category']['name'] ?? 'General');
+        $productId = $this->getProductProp($product, 'id');
+        $productName = $this->getProductProp($product, 'name');
+        $catName = $this->getCategoryName($product) ?: 'General';
 
         $hasExisting = false;
         if ($fileType === 'image') {
-            $hasExisting = !empty($product->image_url);
+            $hasExisting = !empty($this->getProductProp($product, 'image_url'));
         } elseif ($fileType === 'specification') {
-            $hasExisting = !empty($product->specification_url) || !empty($product->specification_image);
+            $hasExisting = !empty($this->getProductProp($product, 'specification_url')) || !empty($this->getProductProp($product, 'specification_image'));
         } else { // msds
-            $hasExisting = !empty($product->msds_url);
+            $hasExisting = !empty($this->getProductProp($product, 'msds_url'));
         }
 
         if ($hasExisting && $mode === 'skip') {
             return [
                 'status' => 'EXISTING IMAGE',
-                'matched_product_id' => $product->id,
-                'matched_product_name' => $product->name,
+                'matched_product_id' => $productId,
+                'matched_product_name' => $productName,
                 'matched_category' => $catName,
                 'match_method' => $match['method'],
                 'confidence' => $match['confidence'],
-                'message' => "Product '{$product->name}' already has an assigned " . strtoupper($fileType) . ". Skipped per settings."
+                'message' => "Product '{$productName}' already has an assigned " . strtoupper($fileType) . ". Skipped per settings."
             ];
         }
 
         return [
             'status' => 'SUCCESS',
-            'matched_product_id' => $product->id,
-            'matched_product_name' => $product->name,
+            'matched_product_id' => $productId,
+            'matched_product_name' => $productName,
             'matched_category' => $catName,
             'match_method' => $match['method'],
             'confidence' => $match['confidence'],
-            'message' => "Successfully matched to product '{$product->name}' ({$catName}) via {$match['method']}."
+            'message' => "Successfully matched to product '{$productName}' ({$catName}) via {$match['method']}."
         ];
     }
 }
