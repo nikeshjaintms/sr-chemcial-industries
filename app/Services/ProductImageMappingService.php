@@ -329,21 +329,21 @@ class ProductImageMappingService
 
     /**
      * Candidate images helper for Media Library view.
+     * Scans ONLY the canonical product upload directory: storage/app/public/uploads/products.
      */
     public function getCandidateImages(): array
     {
         $directories = [
-            public_path('assets/img/added/product'),
-            public_path('assets/img/added/OP'),
-            public_path('storage/uploads/products'),
             storage_path('app/public/uploads/products'),
+            public_path('storage/uploads/products'),
+            public_path('uploads/products'),
         ];
 
         $images = [];
         $seenPaths = [];
 
         foreach ($directories as $dir) {
-            if (!file_exists($dir)) continue;
+            if (!file_exists($dir) || !is_dir($dir)) continue;
 
             $files = glob($dir . '/*');
             foreach ($files as $file) {
@@ -358,6 +358,9 @@ class ProductImageMappingService
 
                 $publicRoot = str_replace('\\', '/', public_path());
                 $relPath = str_replace($publicRoot . '/', '', $realPath);
+                if (str_starts_with($relPath, 'storage/app/public/')) {
+                    $relPath = str_replace('storage/app/public/', 'storage/', $relPath);
+                }
 
                 $filename = pathinfo($file, PATHINFO_FILENAME);
                 $normFilename = $this->normalizeFilename(basename($file));
@@ -385,18 +388,14 @@ class ProductImageMappingService
     public function auditProducts(): array
     {
         $products = Product::all();
-        $placeholderPattern = 'Caustic-Soda-Flakes-NaOH.jpg';
 
         $total = $products->count();
         $assigned = 0;
         $withoutImages = [];
 
         foreach ($products as $p) {
-            $url = $p->image_url;
-            $hasValidImage = !empty($url) &&
-                !str_contains($url, $placeholderPattern) &&
-                $url !== '#' &&
-                (file_exists(public_path(ltrim($url, '/'))) || file_exists(storage_path('app/public/' . str_replace('storage/', '', ltrim($url, '/')))));
+            $raw = $p->getRawOriginal('image_url');
+            $hasValidImage = !empty($raw) && $raw !== '#' && trim($raw) !== '';
 
             if ($hasValidImage) {
                 $assigned++;

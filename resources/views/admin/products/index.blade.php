@@ -141,7 +141,11 @@
                             <input type="checkbox" name="ids[]" value="{{ $p->id }}" class="form-check-input product-checkbox">
                         </td>
                         <td style="width: 50px;">
-                            <img src="{{ asset($p->image_url) }}" alt="{{ $p->name }}" width="42" height="42" class="rounded-3 object-fit-cover border shadow-sm">
+                            @if(!empty($p->image_url))
+                                <img src="{{ asset($p->image_url) }}" alt="{{ $p->name }}" width="42" height="42" class="rounded-3 object-fit-cover border shadow-sm">
+                            @else
+                                <span class="badge bg-light text-muted border text-11 px-2 py-1">No Image</span>
+                            @endif
                         </td>
                         <td>
                             <div class="font-bold text-dark text-14">{{ $p->name }}</div>

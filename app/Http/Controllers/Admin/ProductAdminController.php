@@ -976,7 +976,7 @@ class ProductAdminController extends Controller
         return back()->with('success', "Image updated for '{$product->name}'!");
     }
 
-    public function deleteAllProductImages(Request $request)
+    public function deleteAllProductImages(Request $request, \App\Services\ProductImageMappingService $mappingService)
     {
         try {
             $products = Product::all();
@@ -986,42 +986,73 @@ class ProductAdminController extends Controller
             $filesDeleted = 0;
             $alreadyEmpty = 0;
 
+            // Step 1: Clear DB image_url field on all products & delete referenced files
             foreach ($products as $product) {
                 $rawUrl = $product->getRawOriginal('image_url') ?? $product->image_url;
 
                 if (empty($rawUrl) || $rawUrl === '#') {
                     $alreadyEmpty++;
-                    continue;
-                }
-
-                $clean = trim($rawUrl);
-                $isStorageFile = str_contains($clean, 'uploads/products/') || str_starts_with($clean, 'storage/');
-
-                if ($isStorageFile) {
+                } else {
+                    $imagesRemoved++;
+                    $clean = trim($rawUrl);
                     $relStoragePath = str_replace(['storage/', 'public/storage/'], '', ltrim($clean, '/'));
 
                     try {
                         if (\Illuminate\Support\Facades\Storage::disk('public')->exists($relStoragePath)) {
                             \Illuminate\Support\Facades\Storage::disk('public')->delete($relStoragePath);
                             $filesDeleted++;
-                        } else {
-                            $pubPath = public_path(ltrim($clean, '/'));
-                            if (file_exists($pubPath) && is_file($pubPath)) {
-                                @unlink($pubPath);
-                                $filesDeleted++;
-                            }
                         }
                     } catch (\Exception $fe) {
                         \Log::warning("Failed deleting physical image file for product ID {$product->id}: " . $fe->getMessage());
                     }
-                }
 
-                $product->image_url = null;
-                $product->save();
-                $imagesRemoved++;
+                    $product->image_url = null;
+                    $product->save();
+                }
             }
 
-            $msg = "All product images removed successfully! Total Products: {$totalProducts} | Images Removed: {$imagesRemoved} | Physical Files Deleted: {$filesDeleted} | Already Empty: {$alreadyEmpty}. Product records, categories, and PDFs remain intact.";
+            // Step 2: Delete ALL remaining & orphan physical files in canonical product upload directories
+            $targetDirs = [
+                storage_path('app/public/uploads/products'),
+                public_path('storage/uploads/products'),
+                public_path('uploads/products'),
+            ];
+
+            $orphanFilesDeleted = 0;
+            foreach ($targetDirs as $dir) {
+                if (file_exists($dir) && is_dir($dir)) {
+                    $files = glob($dir . '/*');
+                    foreach ($files as $file) {
+                        if (is_file($file)) {
+                            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                            if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) {
+                                @unlink($file);
+                                $orphanFilesDeleted++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Step 3: Clear Laravel Cache
+            try {
+                \Illuminate\Support\Facades\Artisan::call('optimize:clear');
+            } catch (\Exception $ce) {}
+
+            // Step 4: Atomic Verification
+            $remainingDbAssignments = Product::whereNotNull('image_url')->where('image_url', '!=', '')->where('image_url', '!=', '#')->count();
+            $remainingCandidateImages = count($mappingService->getCandidateImages());
+
+            if ($remainingDbAssignments > 0 || $remainingCandidateImages > 0) {
+                $err = "Delete operation incomplete. Remaining DB Assignments: {$remainingDbAssignments}, Remaining Files: {$remainingCandidateImages}.";
+                \Log::error($err);
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json(['success' => false, 'status' => 'error', 'message' => $err], 500);
+                }
+                return back()->with('error', $err);
+            }
+
+            $msg = "All product images removed successfully! Total Products: {$totalProducts} | Images Removed: {$imagesRemoved} | Files Deleted: {$filesDeleted} | Orphan Files Cleaned: {$orphanFilesDeleted} | Products Without Images: {$totalProducts} | Local Image Files: 0 | Media Library: 0 Images.";
 
             if ($request->wantsJson() || $request->ajax()) {
                 return response()->json([
@@ -1029,8 +1060,10 @@ class ProductAdminController extends Controller
                     'status' => 'success',
                     'total_products' => $totalProducts,
                     'images_removed' => $imagesRemoved,
-                    'files_deleted' => $filesDeleted,
+                    'files_deleted' => $filesDeleted + $orphanFilesDeleted,
                     'already_empty' => $alreadyEmpty,
+                    'remaining_db' => 0,
+                    'remaining_files' => 0,
                     'message' => $msg,
                 ]);
             }

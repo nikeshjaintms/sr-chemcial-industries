@@ -36,7 +36,14 @@
                 <div class="col-lg-4 col-md-6 mb-30">
                     <div class="research-box sm:mt-30">
                         <div class="image image-anime _relative">
-                            <img loading="lazy" class="w-full" src="{{ asset($product->image_url) }}" alt="{{ $product->name }}">
+                            @if(!empty($product->image_url))
+                                <img loading="lazy" class="w-full" src="{{ asset($product->image_url) }}" alt="{{ $product->name }}">
+                            @else
+                                <div class="w-full bg-light text-center py-5 rounded border d-flex flex-column align-items-center justify-content-center" style="min-height: 220px; background-color: #f8fafc !important;">
+                                    <i class="fa-solid fa-image text-secondary mb-2 display-5"></i>
+                                    <span class="text-muted text-13 font-semibold">Image Not Available</span>
+                                </div>
+                            @endif
                         </div>
                         <div class="heading1">
                             <h4><a href="{{ route('products.show', $product->slug) }}" class="text-20 leading-20 font-semibold title1">{{ $product->name }}</a></h4>

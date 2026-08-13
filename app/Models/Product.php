@@ -273,10 +273,10 @@ class Product extends Model
         return (string) $value;
     }
 
-    public function getImageUrlAttribute($value): string
+    public function getImageUrlAttribute($value): ?string
     {
         if (empty($value) || $value === '#') {
-            return 'assets/img/added/Chemical Supply Solutions.jpg';
+            return null;
         }
 
         $clean = trim($value);

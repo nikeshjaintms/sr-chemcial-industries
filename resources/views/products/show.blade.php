@@ -33,7 +33,14 @@
 
                 <div class="col-md-6">
                     <div class="product-img-box" style="background:#fff; border-radius:14px; padding:24px; box-shadow:0 6px 30px rgba(15,82,134,0.12); border:1.5px solid rgba(15,82,134,0.10); position:sticky; top:100px;">
-                        <img loading="lazy" src="{{ asset($product->image_url) }}" alt="{{ $product->name }}" style="width:100%; border-radius:10px;">
+                        @if(!empty($product->image_url))
+                            <img loading="lazy" src="{{ asset($product->image_url) }}" alt="{{ $product->name }}" style="width:100%; border-radius:10px;">
+                        @else
+                            <div class="text-center py-5 bg-light rounded" style="min-height: 250px; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                                <i class="fa-solid fa-image text-secondary mb-3 display-4"></i>
+                                <span class="text-muted font-bold text-15">Image Not Available</span>
+                            </div>
+                        @endif
                     </div>
                 </div>
 
