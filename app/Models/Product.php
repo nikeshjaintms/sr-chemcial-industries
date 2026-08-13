@@ -279,14 +279,19 @@ class Product extends Model
             return null;
         }
 
-        $clean = trim($value);
+        $clean = str_replace('\\', '/', trim($value));
         if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://')) {
             return $clean;
         }
 
+        // Strip server filesystem root paths (e.g. /home/srjas/.../uploads/products/filename.jpg)
+        if (preg_match('~.*?/uploads/products/(.+)~i', $clean, $m)) {
+            return 'storage/uploads/products/' . $m[1];
+        }
+
         // Clean leading slashes and duplicated storage prefixes
         $clean = ltrim($clean, '/');
-        $clean = str_replace(['public/storage/', 'storage/storage/'], 'storage/', $clean);
+        $clean = str_replace(['public/storage/', 'storage/storage/', 'storage/app/public/'], 'storage/', $clean);
 
         if (str_starts_with($clean, 'uploads/')) {
             $clean = 'storage/' . $clean;

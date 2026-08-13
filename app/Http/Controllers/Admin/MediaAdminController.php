@@ -99,21 +99,48 @@ class MediaAdminController extends Controller
             'image_path' => 'required|string'
         ]);
 
-        $relPath = $request->image_path;
-        $fullPath = public_path($relPath);
+        $rawPath = $request->image_path;
+        $fileName = basename($rawPath);
+        $relPath = 'storage/uploads/products/' . $fileName;
 
         // Check if assigned to any product
-        $inUse = Product::where('image_url', $relPath)->get();
+        $inUse = Product::where(function($query) use ($fileName, $relPath, $rawPath) {
+            $query->where('image_url', $relPath)
+                  ->orWhere('image_url', 'uploads/products/' . $fileName)
+                  ->orWhere('image_url', 'LIKE', '%' . $fileName);
+        })->get();
+
         if ($inUse->count() > 0) {
             $productNames = $inUse->pluck('name')->implode(', ');
-            return back()->with('error', "Cannot delete image. It is currently assigned to {$inUse->count()} product(s): {$productNames}");
+            return back()->with('error', "Cannot delete image file '{$fileName}'. It is currently assigned to {$inUse->count()} product(s): {$productNames}");
         }
 
-        if (File::exists($fullPath)) {
-            File::delete($fullPath);
-            return back()->with('success', "Image file '{$relPath}' deleted successfully!");
+        $deleted = false;
+        $storageRelPath = 'uploads/products/' . $fileName;
+
+        if (\Illuminate\Support\Facades\Storage::disk('public')->exists($storageRelPath)) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($storageRelPath);
+            $deleted = true;
         }
 
-        return back()->with('error', "File not found: {$relPath}");
+        $possiblePaths = [
+            storage_path('app/public/uploads/products/' . $fileName),
+            public_path('storage/uploads/products/' . $fileName),
+            public_path('uploads/products/' . $fileName),
+            public_path(ltrim($rawPath, '/')),
+        ];
+
+        foreach ($possiblePaths as $p) {
+            if (File::exists($p) && is_file($p)) {
+                @File::delete($p);
+                $deleted = true;
+            }
+        }
+
+        if ($deleted) {
+            return back()->with('success', "Image file '{$fileName}' deleted successfully!");
+        }
+
+        return back()->with('info', "File '{$fileName}' was already removed or is no longer present on storage disk.");
     }
 }

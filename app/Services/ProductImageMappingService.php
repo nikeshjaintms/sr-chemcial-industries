@@ -356,21 +356,17 @@ class ProductImageMappingService
                 if (isset($seenPaths[$realPath])) continue;
                 $seenPaths[$realPath] = true;
 
-                $publicRoot = str_replace('\\', '/', public_path());
-                $relPath = str_replace($publicRoot . '/', '', $realPath);
-                if (str_starts_with($relPath, 'storage/app/public/')) {
-                    $relPath = str_replace('storage/app/public/', 'storage/', $relPath);
-                }
-
-                $filename = pathinfo($file, PATHINFO_FILENAME);
-                $normFilename = $this->normalizeFilename(basename($file));
+                $fileName = basename($file);
+                $relPath = 'storage/uploads/products/' . $fileName;
+                $normFilename = $this->normalizeFilename($fileName);
+                $rawFilename = pathinfo($fileName, PATHINFO_FILENAME);
 
                 $images[] = [
                     'full_path' => $realPath,
                     'relative_path' => $relPath,
                     'url' => asset($relPath),
-                    'filename' => basename($file),
-                    'raw_name' => $filename,
+                    'filename' => $fileName,
+                    'raw_name' => $rawFilename,
                     'norm_name' => $normFilename,
                     'extension' => $ext,
                     'size' => file_exists($realPath) ? filesize($realPath) : 0,
