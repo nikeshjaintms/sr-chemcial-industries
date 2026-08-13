@@ -1035,6 +1035,30 @@ class ProductAdminController extends Controller
         }
     }
 
+    public function reconcileImages(Request $request, \App\Services\ProductImageMappingService $mappingService)
+    {
+        try {
+            $summary = $mappingService->reconcileProductImages();
+            $msg = "Auto-Match All Product Images Completed! Total Products: {$summary['total_products']} | Already Assigned: {$summary['already_assigned']} | Auto Matched: {$summary['auto_matched']} | Needs Review: {$summary['needs_review']} | Still Without Image: {$summary['without_image']} | Total Local Images: {$summary['total_local_images']}.";
+
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $msg,
+                    'summary' => $summary,
+                ]);
+            }
+
+            return back()->with('success', $msg)->with('reconcile_summary', $summary);
+        } catch (\Exception $e) {
+            \Log::error('Reconcile Images Exception: ' . $e->getMessage());
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => 'Reconciliation failed: ' . $e->getMessage()], 500);
+            }
+            return back()->with('error', 'Reconciliation failed: ' . $e->getMessage());
+        }
+    }
+
     public function showDuplicateImages(\App\Services\ProductImageMappingService $mappingService)
     {
         $audit = $mappingService->auditProducts();

@@ -11,6 +11,12 @@
             <p class="text-muted mb-0">Browse, filter, assign, and manage all product image assets.</p>
         </div>
         <div class="d-flex flex-wrap gap-2 align-items-center">
+            <form action="{{ route('admin.products.reconcile-images') }}" method="POST" class="d-inline">
+                @csrf
+                <button type="submit" class="btn btn-success" onclick="return confirm('Run global reconciliation across all products and local images?')">
+                    <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Auto Match All Product Images
+                </button>
+            </form>
             <form action="{{ route('admin.products.resync-images') }}" method="POST" class="d-inline">
                 @csrf
                 <button type="submit" class="btn btn-outline-success" onclick="return confirm('Scan public/assets/products/ and auto-assign matching image files to products?')">

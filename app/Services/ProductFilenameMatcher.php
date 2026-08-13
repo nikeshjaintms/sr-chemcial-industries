@@ -128,7 +128,23 @@ class ProductFilenameMatcher
     }
 
     /**
-     * Extract clean tokens from a normalized string, ignoring stop words.
+     * Chemical abbreviation & alias dictionary for expanding short symbols to full chemical names.
+     */
+    protected array $chemicalAliases = [
+        'mdc'   => 'methylene chloride',
+        'odcb'  => 'ortho di chloro benzene',
+        'pdcb'  => 'para di chloro benzene',
+        'ipa'   => 'iso propyl alcohol',
+        'naoh'  => 'caustic soda',
+        'naocl' => 'sodium hypochlorite',
+        'ccl4'  => 'carbon tetrachloride',
+        'pac'   => 'poly aluminium chloride',
+        'hcl'   => 'hydrochloric acid',
+        'h2so4' => 'sulfuric acid',
+    ];
+
+    /**
+     * Extract clean tokens from a normalized string, expanding chemical aliases and ignoring stop words.
      */
     public function tokenize(string $normalized): array
     {
@@ -139,6 +155,13 @@ class ProductFilenameMatcher
             $w = trim($w);
             if ($w !== '' && !in_array($w, $this->stopWords, true)) {
                 $tokens[] = $w;
+                // Expand chemical alias if present e.g. "ipa" -> "iso", "propyl", "alcohol"
+                if (isset($this->chemicalAliases[$w])) {
+                    $expandedWords = explode(' ', $this->chemicalAliases[$w]);
+                    foreach ($expandedWords as $ew) {
+                        $tokens[] = $ew;
+                    }
+                }
             }
         }
 

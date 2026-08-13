@@ -249,4 +249,71 @@ class ProductImageMappingService
             'details' => $details,
         ];
     }
+
+    /**
+     * Reconcile/Auto Match All Product Images globally across all database products and local candidate images in public/assets/products/.
+     */
+    public function reconcileProductImages(): array
+    {
+        $candidateImages = $this->getCandidateImages();
+        $allProducts = Product::with('category')->get();
+
+        $alreadyAssigned = 0;
+        $autoMatched = 0;
+        $needsReview = 0;
+        $withoutImage = 0;
+        $details = [];
+
+        // 1. Audit current physical image assignments
+        $unassignedProducts = collect();
+        foreach ($allProducts as $p) {
+            $rawUrl = $p->getRawOriginal('image_url') ?? $p->image_url;
+            $hasValidUrl = !empty($rawUrl) && $rawUrl !== '#' && trim($rawUrl) !== '';
+            $physicalFile = $hasValidUrl ? public_path(ltrim($rawUrl, '/')) : '';
+            $fileExists = $hasValidUrl && file_exists($physicalFile);
+
+            if ($hasValidUrl && $fileExists) {
+                $alreadyAssigned++;
+            } else {
+                $unassignedProducts->push($p);
+            }
+        }
+
+        // 2. Match each candidate image against ALL products in database safely
+        foreach ($candidateImages as $img) {
+            $filename = $img['filename'];
+            $relPath = 'assets/products/' . $filename;
+
+            // Match against ALL products
+            $res = $this->matcher->matchFilenameToProduct($filename, $allProducts, 'image', 'replace');
+
+            if ($res['status'] === 'SUCCESS' || $res['status'] === 'MATCHED') {
+                $productId = $res['matched_product_id'];
+                $product = $allProducts->firstWhere('id', $productId);
+
+                if ($product && $unassignedProducts->contains('id', $product->id)) {
+                    $product->image_url = $relPath;
+                    $product->save();
+                    $autoMatched++;
+                    $unassignedProducts = $unassignedProducts->reject(fn($p) => $p->id == $product->id);
+                    $details[] = "✅ Auto-matched '{$filename}' → Product '{$product->name}' ({$res['matched_category']})";
+                }
+            } elseif ($res['status'] === 'AMBIGUOUS') {
+                $needsReview++;
+                $details[] = "⚠️ Needs Review '{$filename}' ({$res['message']})";
+            }
+        }
+
+        $withoutImage = $unassignedProducts->count();
+
+        return [
+            'total_products' => $allProducts->count(),
+            'already_assigned' => $alreadyAssigned,
+            'auto_matched' => $autoMatched,
+            'needs_review' => $needsReview,
+            'without_image' => $withoutImage,
+            'total_local_images' => count($candidateImages),
+            'details' => $details,
+        ];
+    }
 }

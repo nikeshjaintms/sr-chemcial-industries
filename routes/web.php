@@ -139,6 +139,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/products/duplicate-images', [ProductAdminController::class, 'showDuplicateImages'])->name('products.duplicate-images');
         Route::post('/products/replace-duplicate-image', [ProductAdminController::class, 'replaceDuplicateImage'])->name('products.replace-duplicate-image');
         Route::post('/products/resync-images', [ProductAdminController::class, 'resyncImages'])->name('products.resync-images');
+        Route::post('/products/reconcile-images', [ProductAdminController::class, 'reconcileImages'])->name('products.reconcile-images');
 
         // Bulk PDF Auto-Matching Routes
         Route::get('/products/bulk-pdf', [BulkPdfUploadController::class, 'index'])->name('products.bulk-pdf');
