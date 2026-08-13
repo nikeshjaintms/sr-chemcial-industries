@@ -298,8 +298,21 @@ class Product extends Model
         if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://')) {
             return $clean;
         }
+
         $fileName = basename($clean);
-        return 'assets/pdf/MSDC/' . $fileName;
+        $canonicalPath = 'assets/pdf/MSDC/' . $fileName;
+        $canonicalFull = str_replace('\\', '/', public_path($canonicalPath));
+        if (file_exists($canonicalFull) && is_file($canonicalFull)) {
+            return $canonicalPath;
+        }
+
+        $cleanRel = ltrim($clean, '/');
+        $cleanFull = str_replace('\\', '/', public_path($cleanRel));
+        if (file_exists($cleanFull) && is_file($cleanFull)) {
+            return $cleanRel;
+        }
+
+        return null;
     }
 
     public function getSpecPdfUrlAttribute(): ?string
@@ -312,8 +325,47 @@ class Product extends Model
         if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://')) {
             return $clean;
         }
+
         $fileName = basename($clean);
-        return 'assets/pdf/Specification/' . $fileName;
+        $canonicalPath = 'assets/pdf/Specification/' . $fileName;
+        $canonicalFull = str_replace('\\', '/', public_path($canonicalPath));
+        if (file_exists($canonicalFull) && is_file($canonicalFull)) {
+            return $canonicalPath;
+        }
+
+        $cleanRel = ltrim($clean, '/');
+        $cleanFull = str_replace('\\', '/', public_path($cleanRel));
+        if (file_exists($cleanFull) && is_file($cleanFull)) {
+            return $cleanRel;
+        }
+
+        return null;
+    }
+
+    public function hasValidMsdsPdf(): bool
+    {
+        $url = $this->msds_pdf_url;
+        if (empty($url)) {
+            return false;
+        }
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            return true;
+        }
+        $fullPath = str_replace('\\', '/', public_path(ltrim($url, '/')));
+        return file_exists($fullPath) && is_file($fullPath);
+    }
+
+    public function hasValidSpecPdf(): bool
+    {
+        $url = $this->spec_pdf_url;
+        if (empty($url)) {
+            return false;
+        }
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            return true;
+        }
+        $fullPath = str_replace('\\', '/', public_path(ltrim($url, '/')));
+        return file_exists($fullPath) && is_file($fullPath);
     }
 
     public function category()
