@@ -41,7 +41,32 @@ class ProductController extends Controller
 
     public function category(string $slug)
     {
-        $category = Category::where('slug', $slug)->firstOrFail();
+        $cleanSlug = trim($slug);
+
+        // Handle common shorthand / legacy slug variations
+        $aliasMap = [
+            'paint-coating-solvents' => 'paint-coating-industry-solvents',
+            'paint-coating' => 'paint-coating-industry-solvents',
+            'paint-coating-industry-solvent' => 'paint-coating-industry-solvents',
+            'pharmaceutical-solvents' => 'pharmaceutical-chemical-solvents',
+            'industrial-solvents' => 'industrial-solvents-commodities',
+        ];
+
+        if (isset($aliasMap[$cleanSlug])) {
+            $cleanSlug = $aliasMap[$cleanSlug];
+        }
+
+        $category = Category::where('slug', $cleanSlug)->first();
+
+        if (!$category) {
+            $category = Category::where('slug', 'LIKE', '%' . $cleanSlug . '%')
+                ->orWhere('name', 'LIKE', '%' . str_replace('-', ' ', $cleanSlug) . '%')
+                ->first();
+        }
+
+        if (!$category) {
+            abort(404, 'Category Not Found');
+        }
 
         // Get all product IDs in this category and all its descendant subcategories recursively
         $allProducts = $category->getAllProductsRecursive();

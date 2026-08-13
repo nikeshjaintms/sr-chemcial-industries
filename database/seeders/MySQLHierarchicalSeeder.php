@@ -1961,16 +1961,16 @@ class MySQLHierarchicalSeeder
 
         ContactDetail::create([
             'office_name' => 'Corporate & Marketing Office',
-            'address' => 'GF-10, Bhavani Shopping Complex, Nr. Hotel NyayMandir, Zadeshwar',
+            'address' => 'A-97 Sai Ashish, NH-8 Vadadla, Bharuch 392011',
             'city' => 'Bharuch',
             'state' => 'Gujarat',
             'country' => 'India',
-            'postal_code' => '392015',
-            'phone' => '+91 99047 88479 / +91 76988 81819',
-            'email' => 'marketing@puregrade.in / sales@srchemical.com',
-            'whatsapp' => '+919904788479',
+            'postal_code' => '392011',
+            'phone' => '+91 76001 81931 / +91 70415 53966',
+            'email' => 'srchemicalindustries9@gmail.com / marketing@srchemicalindustries.com',
+            'whatsapp' => '+917600181931',
             'working_hours' => 'Monday - Saturday: 9:00 AM - 7:00 PM IST',
-            'google_map_url' => 'https://maps.google.com/?q=Zadeshwar,Bharuch,Gujarat'
+            'google_map_url' => 'https://maps.google.com/?q=Bharuch,Gujarat'
         ]);
 
         ExportCountry::create([

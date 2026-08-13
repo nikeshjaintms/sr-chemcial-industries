@@ -30,13 +30,13 @@
         </a>
         <ul class="sub-menu">
             <li>
-                <a href="{{ url('/category/paint-coating-solvents') }}">Paint &amp; Coating Industry Solvents</a>
+                <a href="{{ route('products.category', 'paint-coating-industry-solvents') }}">Paint &amp; Coating Industry Solvents</a>
             </li>
             <li>
-                <a href="{{ url('/category/pharmaceutical-chemical-solvents') }}">Pharmaceutical &amp; Chemical Solvents</a>
+                <a href="{{ route('products.category', 'pharmaceutical-chemical-solvents') }}">Pharmaceutical &amp; Chemical Solvents</a>
             </li>
             <li>
-                <a href="{{ url('/category/cleaning-degreasing-solvents') }}">By Products</a>
+                <a href="{{ route('products.category', 'cleaning-degreasing-solvents') }}">By Products</a>
             </li>
             <li>
                 <a href="{{ route('products.index') }}">Solvent &amp; Chemical Products Catalog</a>

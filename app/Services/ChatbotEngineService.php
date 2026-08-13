@@ -135,7 +135,7 @@ class ChatbotEngineService
             'contact_button' => [
                 'label' => 'Contact Support Team',
                 'url' => route('contact'),
-                'phone' => '+91 99047 88479',
+                'phone' => '+91 76001 81931',
                 'email' => 'marketing@srchemicalindustries.com'
             ],
             'session_id' => $sessionId
@@ -516,10 +516,10 @@ class ChatbotEngineService
         $contact = ContactDetail::first();
 
         $msg = "### 📞 Contact SR Chemical Industries Limited\n\n";
-        $msg .= "• **Office Address**: " . ($contact ? $contact->address : 'GF-10, Bhavani Shopping Complex, Zadeshwar, Bharuch - 392015, Gujarat, India') . "\n";
-        $msg .= "• **Phone**: " . ($contact ? $contact->phone : '+91 76001 81931 / +91 70415 53966') . "\n";
-        $msg .= "• **Email**: " . ($contact ? $contact->email : 'srchemicalindustries9@gmail.com / marketing@srchemicalindustries.com') . "\n";
-        $msg .= "• **Working Hours**: " . ($contact ? $contact->working_hours : 'Mon - Sat: 9:00 AM - 7:00 PM IST') . "\n\n";
+        $msg .= "📍 **Location**: " . ($contact ? $contact->address : 'A-97 Sai Ashish, NH-8 Vadadla, Bharuch 392011') . "\n";
+        $msg .= "📞 **Contact Number**: " . ($contact ? $contact->phone : '+91 76001 81931 / +91 70415 53966') . "\n";
+        $msg .= "✉️ **Email**: " . ($contact ? $contact->email : 'srchemicalindustries9@gmail.com / marketing@srchemicalindustries.com') . "\n";
+        $msg .= "🕒 **Working Hours**: " . ($contact ? $contact->working_hours : 'Mon - Sat: 9:00 AM - 7:00 PM IST') . "\n\n";
         $msg .= "You can also submit an inquiry online via our [Contact Page](" . route('contact') . ").";
 
         $this->saveHistory($sessionId, $queryClean, $msg, 'contact_query');
@@ -543,7 +543,7 @@ class ChatbotEngineService
         $msg .= "#### Packaging Options Available:\n";
         $msg .= "• **Solid Chemicals**: 25 Kg / 50 Kg Moisture-proof HDPE bags with inner liner, 1000 Kg Jumbo bags.\n";
         $msg .= "• **Liquid Chemicals & Solvents**: 30 Kg HDPE carboys, 210 L steel/plastic drums, ISO tank containers, and dedicated road tankers (15 to 30 tons).\n\n";
-        $msg .= "To request a bulk order quotation or custom logistics arrangement, please reach out to **sales@srchemical.com** or call **+91 99047 88479**.";
+        $msg .= "To request a bulk order quotation or custom logistics arrangement, please reach out to **srchemicalindustries9@gmail.com** / **marketing@srchemicalindustries.com** or call **+91 76001 81931 / +91 70415 53966**.";
 
         $this->saveHistory($sessionId, $queryClean, $msg, 'bulk_order_query');
 

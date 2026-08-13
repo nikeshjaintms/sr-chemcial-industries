@@ -56,11 +56,11 @@
                                     </div>
                                     <div class="heading ml-16">
                                         <h3 class="text-20 font-semibold title1 leading-20">Number</h3>
-                                        <a href="tel:919904788479"
-                                            class="text-16 font-normal inline-block mt-3 pera1 leading-16">+91 99047 88479</a>
+                                        <a href="tel:7600181931"
+                                            class="text-16 font-normal inline-block mt-3 pera1 leading-16">+91 76001 81931</a>
                                             <br>
-                                            <a href="tel:7698881819"
-                                            class="text-16 font-normal inline-block mt-3 pera1 leading-16">+91 7698881819</a>
+                                            <a href="tel:7041553966"
+                                            class="text-16 font-normal inline-block mt-3 pera1 leading-16">+91 70415 53966</a>
                                     </div>
                                 </div>
                             </div>
